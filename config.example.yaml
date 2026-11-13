@@ -1,0 +1,36 @@
+run_time: "17:00"
+windows: [20, 40, 90]
+annual_factor: 252
+min_obs_ratio: 0.6
+price_lookback_days: 130
+monitor_window_trading_days: 10
+row_change_alert_pct: 2.0
+vol_range: [0.0, 5.0]
+index_codes:
+  sse50: "000016.SH"
+  csi300: "000300.SH"
+  csi500: "000905.SH"
+  csi1000: "000852.SH"
+  csi2000: "932000.CSI"
+output_dir: "./output"
+data_dir: "./data"
+db_path: "./data/risk_l1.sqlite"
+alert_wecom_webhook: ""
+alert_email: ""
+log_dir: "./logs"
+
+# 也可设置环境变量 IFIND_REFRESH_TOKEN，环境变量优先
+ifind_refresh_token: ""
+
+# 交易所接口配置
+szse_xlsx_url: "https://www.szse.cn/api/report/ShowReport"
+sse_referer: "https://www.sse.com.cn/disclosure/diclosure/ycjyxx/main/"
+
+retry_times: 3
+retry_backoff: 2
+
+vol_bad_pct_alert: 0.5
+min_price_coverage_pct: 95.0
+basic_data_refresh_weekday: 0
+quality_soft_checks: ["sse50_count", "csi300_count", "csi500_count",
+                      "csi1000_count", "csi2000_count"]

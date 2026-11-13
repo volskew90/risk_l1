@@ -1,0 +1,23 @@
+[project]
+name = "risk-l1"
+version = "0.1.0"
+description = "IA Monitor - Security Data and Initial Amount Calculator"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "requests>=2.28",
+    "openpyxl>=3.0",
+    "pyyaml>=6.0",
+    "pytest>=7.0",
+    "exchange-calendars>=4.5",
+]
+
+[project.optional-dependencies]
+prod = [
+    "iFinDPy",  # 需从同花顺官方渠道安装，不在 PyPI
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IA 组合保证金与 IA 计算器</title>
+<style>
+:root{--blue:#2457d6;--bg:#f4f6fa;--line:#dfe4ec;--text:#182230;--muted:#667085}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}
+header{background:#152b55;color:white;padding:24px 32px}header h1{margin:0 0 6px;font-size:24px}header p{margin:0;color:#d8e3f8}
+main{max-width:1600px;margin:auto;padding:22px}section{background:white;border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:18px}
+h2{font-size:17px;margin:0 0 14px}h3{font-size:14px;margin:18px 0 8px;color:var(--muted)}.note{color:var(--muted);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px 16px}.field{display:flex;flex-direction:column;gap:4px}.field label{font-size:12px;color:var(--muted)}
+input,select{border:1px solid #c9d1df;border-radius:6px;padding:7px 8px;background:white;width:100%}input:focus,select:focus{outline:2px solid #aac0ef;border-color:var(--blue)}
+button{border:0;border-radius:7px;padding:10px 20px;cursor:pointer;background:var(--blue);color:white;font-weight:600}button.secondary{background:#e8edf5;color:#27364c}button:disabled{opacity:.6}
+.actions{display:flex;gap:10px;align-items:center;margin-top:16px}#status{color:var(--muted)}#status.error{color:#b42318}
+.scroll{overflow:auto}table{border-collapse:collapse;width:100%;white-space:nowrap}th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right}th{background:#f8fafc;color:#475467;font-size:12px;position:sticky;top:0}th:first-child,td:first-child{text-align:left}.portfolio input{min-width:110px;padding:5px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}.card{background:#f7f9fd;border-radius:8px;padding:14px}.card .label{color:var(--muted);font-size:12px}.card .value{font-size:22px;font-weight:700;margin-top:5px}.primary{color:var(--blue)}
+.small{font-size:12px;color:var(--muted)}#results{display:none}
+</style>
+</head>
+<body>
+<header><h1>IA 组合保证金与 IA 计算器</h1><p>第二层组合风险输入 · 第三层单券保证金与调整后 IA · 第四层组合 IA</p></header>
+<main>
+<section>
+<h2>一、参数输入</h2>
+<div class="note">当前为演示默认值，全部可修改。比例阈值以 % 输入；调整比例直接填 0.7、0.4 等数值。第二层不使用阈值，本页参数仅用于第三、四层。</div>
+<h3>全局保证金参数</h3>
+<div class="grid">
+<div class="field"><label>基础保证金率 base_im (%)</label><input id="base_im" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>合约加点方式</label><select id="contract_add_on_type"><option value="absolute">绝对加点</option><option value="relative">按比例上浮</option></select></div>
+<div class="field"><label>合约加点值 (%)</label><input id="contract_add_on" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>upper_im (%)</label><input id="upper_im" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>少于阈值时取大/取小</label><select id="upper_compare"><option value="max">取大（银河）</option><option value="min">取小（东证）</option></select></div>
+<div class="field"><label>少量股票阈值（只）</label><input id="upper_position_limit" data-kind="integer" type="number" min="1" step="1"></div>
+</div>
+<h3>调整项参数</h3>
+<div class="grid">
+<div class="field"><label>个股阈值：双创非300 (%)</label><input id="stock_weight_threshold_dual" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>个股阈值：其他 (%)</label><input id="stock_weight_threshold_other" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>个股调整比例</label><input id="stock_adj_ratio" type="number" step="0.01"></div>
+<div class="field"><label>行业集中度阈值 (%)</label><input id="industry_weight_threshold" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>行业调整比例</label><input id="industry_adj_ratio" type="number" step="0.01"></div>
+<div class="field"><label>90日波动率阈值 (%)</label><input id="vol_90d_threshold" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>波动率调整比例</label><input id="vol_adj_ratio" type="number" step="0.01"></div>
+<div class="field"><label>双创/微盘集中度阈值 (%)</label><input id="cc_micro_weight_threshold" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>双创/微盘调整比例</label><input id="cc_micro_adj_ratio" type="number" step="0.01"></div>
+</div>
+<h3>限制项参数</h3>
+<div class="grid">
+<div class="field"><label>r1 流动性阈值 (%)</label><input id="liquidity_threshold" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>r1 成交额上限（元）</label><input id="liquidity_cap" type="number" step="1000000"></div>
+<div class="field"><label>r2 个股集中度阈值 (%)</label><input id="position_weight_limit" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>r3 总股本阈值 (%)</label><input id="total_share_limit" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>r4 流通股本阈值 (%)</label><input id="float_share_limit" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>r5 行业集中度阈值 (%)</label><input id="industry_weight_limit" data-kind="percent" type="number" step="0.01"></div>
+<div class="field"><label>r7 双创/微盘阈值 (%)</label><input id="cc_micro_weight_limit" data-kind="percent" type="number" step="0.01"></div>
+</div>
+<div class="actions"><button id="calculate">计算组合</button><button class="secondary" id="reset" type="button">恢复演示参数</button><span id="status"></span></div>
+</section>
+<section>
+<h2>二、上传与编辑组合 <span class="small" id="as_of"></span></h2>
+<div class="note">支持 CSV / XLSX，必需列为 sec_code、shares、price，sec_name 可选。股数和股价可直接修改后重新计算；空头使用负股数，但同一组合不能同时包含多头和空头。</div>
+<div class="actions" style="margin-bottom:14px"><input id="portfolio_file" type="file" accept=".csv,.xlsx" style="max-width:360px"><button class="secondary" id="upload" type="button">上传并计算</button><span class="small" id="file_name">当前使用内置演示组合</span></div>
+<div class="scroll"><table><thead><tr><th>代码</th><th>名称</th><th>股数</th><th>股价（元）</th></tr></thead><tbody id="portfolio"></tbody></table></div>
+</section>
+<div id="results">
+<section><div class="actions" style="margin-top:0"><button id="export" type="button" disabled>导出 Excel（个股IA / 组合IA）</button><span class="small">导出包含本次计算结果和参数</span></div></section>
+<section><h2>三、第四层：组合 IA</h2><div class="cards">
+<div class="card"><div class="label">组合总市值</div><div class="value" id="total_mv"></div></div>
+<div class="card"><div class="label">总保证金占用</div><div class="value" id="total_margin"></div></div>
+<div class="card"><div class="label">组合 IA = 总保证金 / 总市值</div><div class="value primary" id="portfolio_ia"></div></div>
+<div class="card"><div class="label">单券 IA 市值加权平均</div><div class="value primary" id="weighted_ia"></div></div>
+<div class="card"><div class="label">两种方法差额</div><div class="value" id="ia_diff"></div></div>
+</div></section>
+<section><h2>四、第三层：单券保证金与调整后 IA</h2><div class="scroll"><table><thead><tr><th>代码/名称</th><th>市值</th><th>个股集中度</th><th>维持保证金率</th><th>restr_mv</th><th>规则保证金</th><th>upper_im 保证金</th><th>最终保证金</th><th>调整后 IA</th></tr></thead><tbody id="stock_results"></tbody></table></div></section>
+<section><h2>五、调整项明细</h2><div class="scroll"><table><thead><tr><th>代码/名称</th><th>个股调整</th><th>行业调整</th><th>90日波动率</th><th>波动率调整</th><th>双创/微盘调整</th><th>调整项之和</th></tr></thead><tbody id="adjustments"></tbody></table></div></section>
+<section><h2>六、限制项明细</h2><div class="scroll"><table><thead><tr><th>代码/名称</th><th>r1 流动性</th><th>r2 个股集中度</th><th>r3 总股本</th><th>r4 流通股本</th><th>r5 行业</th><th>r7 双创/微盘</th><th>最大值 restr_mv</th></tr></thead><tbody id="restrictions"></tbody></table></div></section>
+</div>
+</main>
+<script>
+let demo=null,lastResult=null,lastParams=null;
+const $=id=>document.getElementById(id);
+const money=v=>new Intl.NumberFormat('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v||0);
+const pct=v=>((v||0)*100).toFixed(2)+'%';
+const num=v=>Number(v||0).toFixed(6);
+function fillParams(params){document.querySelectorAll('[id]').forEach(el=>{if(!(el.id in params))return;let v=params[el.id];if(el.dataset.kind==='percent')v=v*100;el.value=v});}
+function params(){const p={};document.querySelectorAll('.field input[id],.field select[id]').forEach(el=>{let v=el.value;if(el.tagName==='SELECT'){p[el.id]=v;return}v=Number(v);if(!Number.isFinite(v))throw new Error(el.previousElementSibling.textContent+' 不是有效数值');if(el.dataset.kind==='percent')v/=100;p[el.id]=v});return p}
+function positions(){return [...document.querySelectorAll('#portfolio tr')].map(tr=>({sec_code:tr.dataset.code,sec_name:tr.dataset.name,shares:Number(tr.querySelector('.shares').value),price:Number(tr.querySelector('.price').value)}))}
+function renderPortfolio(rows){$('portfolio').innerHTML=rows.map(r=>`<tr data-code="${r.sec_code}" data-name="${r.sec_name}"><td>${r.sec_code}</td><td>${r.sec_name}</td><td><input class="shares" type="number" step="1" value="${r.shares}"></td><td><input class="price" type="number" min="0.01" step="0.01" value="${r.price}"></td></tr>`).join('')}
+function nameCell(r){return `${r.sec_code}<br><span class="small">${r.sec_name}</span>`}
+async function calculate(){try{$('status').className='';$('status').textContent='计算中；新股票首次需要补齐第一层数据，请稍候...';$('calculate').disabled=true;const currentParams=params();const resp=await fetch('/api/calculate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({positions:positions(),params:currentParams})});const data=await resp.json();if(!resp.ok)throw new Error(data.error||'计算失败');lastResult=data;lastParams=currentParams;renderResults(data);$('export').disabled=false;$('as_of').textContent='证券数据日期：'+data.as_of_date;$('status').textContent='计算完成';}catch(e){$('status').className='error';$('status').textContent=e.message}finally{$('calculate').disabled=false}}
+function renderResults(data){const s=data.summary,rows=data.rows;$('total_mv').textContent=money(s.total_market_value);$('total_margin').textContent=money(s.total_margin_requirement);$('portfolio_ia').textContent=pct(s.portfolio_ia);$('weighted_ia').textContent=pct(s.portfolio_ia_weighted);$('ia_diff').textContent=num(s.ia_method_difference);
+$('stock_results').innerHTML=rows.map(r=>`<tr><td>${nameCell(r)}</td><td>${money(r.market_value)}</td><td>${pct(r.weight_in_portfolio)}</td><td>${pct(r.maintenance_im)}</td><td>${money(r.restr_mv)}</td><td>${money(r.rule_margin_requirement)}</td><td>${money(r.upper_margin_requirement)}</td><td>${money(r.margin_requirement)}</td><td><b>${pct(r.adjusted_ia)}</b></td></tr>`).join('');
+$('adjustments').innerHTML=rows.map(r=>`<tr><td>${nameCell(r)}</td><td>${pct(r.stock_adj)}</td><td>${pct(r.industry_adj)}</td><td>${pct(r.vol_90d)}</td><td>${pct(r.vol_adj)}</td><td>${pct(r.star_adj)}</td><td>${pct(r.adjustment_sum)}</td></tr>`).join('');
+$('restrictions').innerHTML=rows.map(r=>`<tr><td>${nameCell(r)}</td><td>${money(r.restriction1)}</td><td>${money(r.restriction2)}</td><td>${money(r.restriction3)}</td><td>${money(r.restriction4)}</td><td>${money(r.restriction5)}</td><td>${money(r.restriction7)}</td><td><b>${money(r.restr_mv)}</b></td></tr>`).join('');$('results').style.display='block'}
+async function uploadPortfolio(){const file=$('portfolio_file').files[0];if(!file){$('status').className='error';$('status').textContent='请先选择 CSV 或 XLSX 文件';return}try{$('upload').disabled=true;$('status').className='';$('status').textContent='正在读取上传文件...';const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));const resp=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:file.name,content:btoa(binary)})});const data=await resp.json();if(!resp.ok)throw new Error(data.error||'上传失败');renderPortfolio(data.positions);lastResult=null;$('export').disabled=true;$('results').style.display='none';$('file_name').textContent=`已上传 ${file.name}，共 ${data.positions.length} 只股票`;await calculate()}catch(e){$('status').className='error';$('status').textContent=e.message}finally{$('upload').disabled=false}}
+async function exportExcel(){if(!lastResult)return;try{$('export').disabled=true;const resp=await fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:lastResult.rows,summary:lastResult.summary,params:lastParams})});if(!resp.ok){const data=await resp.json();throw new Error(data.error||'导出失败')}const blob=await resp.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');const stamp=new Date().toISOString().replace(/[-:]/g,'').slice(0,15);a.href=url;a.download=`IA_${stamp}.xlsx`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);$('status').textContent='Excel 已导出';}catch(e){$('status').className='error';$('status').textContent=e.message}finally{$('export').disabled=false}}
+async function load(){const resp=await fetch('/api/demo');demo=await resp.json();fillParams(demo.params);renderPortfolio(demo.positions);$('as_of').textContent='证券数据日期：'+demo.as_of_date;await calculate()}
+$('calculate').addEventListener('click',calculate);$('upload').addEventListener('click',uploadPortfolio);$('export').addEventListener('click',exportExcel);$('reset').addEventListener('click',()=>{fillParams(demo.params);calculate()});load().catch(e=>{$('status').className='error';$('status').textContent=e.message});
+</script>
+</body>
+</html>
