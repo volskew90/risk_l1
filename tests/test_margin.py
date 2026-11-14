@@ -356,7 +356,7 @@ def test_tc12_restriction7_cc_micro():
 
 
 def test_tc13_upper_im_dual_rules():
-    """TC13: upper_im 双算法取数（规则1银河 vs 规则2东证）"""
+    """TC13: upper_im 双算法取数（规则1券商A vs 规则2券商B）"""
     # 构造 6 只股票组合，其中第 1 只 A 票市值 3000，规则保证金率 60%（A = 1800），upper_im = 80%（B = 2400）
     rows = []
     for i in range(6):
@@ -388,7 +388,7 @@ def test_tc13_upper_im_dual_rules():
     assert r1["upper_margin_requirement"] == pytest.approx(2400.0)
     assert r1["margin_requirement"] == pytest.approx(2400.0)
 
-    # 规则 2（东证）：6 只 >= 5 只 -> 取 MIN(1800, 2400) = 1800
+    # 规则 2（券商B）：6 只 >= 5 只 -> 取 MIN(1800, 2400) = 1800
     r2_many = margin.calculate_stock_margin(
         df6,
         _std_params(
@@ -399,7 +399,7 @@ def test_tc13_upper_im_dual_rules():
     ).iloc[0]
     assert r2_many["margin_requirement"] == pytest.approx(1800.0)
 
-    # 规则 2（东证）：若组合仅 4 只 (< 5 只) -> 直接取 B = 2400
+    # 规则 2（券商B）：若组合仅 4 只 (< 5 只) -> 直接取 B = 2400
     r2_few = margin.calculate_stock_margin(
         df6.iloc[:4].copy(),
         _std_params(

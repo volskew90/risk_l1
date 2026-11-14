@@ -242,7 +242,7 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
     n_pos = len(out)
     limit_n = int(p["upper_position_limit"])
     if p["upper_compare"] == "rule2":
-        # 东证规则2：标的数量 < 阈值时直接取 upper_im (B)；标的数量 >= 阈值时取 MIN(A, B)
+        # 券商B规则2：标的数量 < 阈值时直接取 upper_im (B)；标的数量 >= 阈值时取 MIN(A, B)
         if n_pos < limit_n:
             out["margin_requirement"] = out["upper_margin_requirement"]
         else:
