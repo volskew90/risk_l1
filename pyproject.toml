@@ -13,10 +13,13 @@ dependencies = [
     "exchange-calendars>=4.5",
 ]
 
-[project.optional-dependencies]
-prod = [
-    "iFinDPy",  # 需从同花顺官方渠道安装，不在 PyPI
-]
+# 注：Windows 生产环境若使用 iFinDPy SDK，需从同花顺官方客户端本地目录手动 pip install，不在 PyPI 索引中
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

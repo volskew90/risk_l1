@@ -82,10 +82,10 @@ def run_pipeline(trade_date: Optional[str] = None, config_path: str = "config.ya
             refresh_token=config.get("ifind_refresh_token") or None,
         )
         
-        # 1. 拉取全 A 股票池
+        # 1. 拉取全 A 股票池（传入 trade_date 防止历史回溯时间穿越）
         logger.info("Step 1: Fetch stock pool")
         try:
-            pool_df = ifind_client.get_stock_pool()
+            pool_df = ifind_client.get_stock_pool(trade_date=trade_date)
             if pool_df.empty:
                 logger.warning("Empty stock pool from iFinD, using fallback")
                 # 从数据库获取上一日股票池作为 fallback
@@ -127,44 +127,18 @@ def run_pipeline(trade_date: Optional[str] = None, config_path: str = "config.ya
             logger.error("Price fetch failed: %s", e)
             raise
         
-        # 4. 计算波动率
+        # 4. 计算波动率（批量向量化计算）
         logger.info("Step 4: Calculate volatility")
-        vol_results = []
         windows = config.get("windows", [20, 40, 90])
         annual_factor = config.get("annual_factor", 252)
         min_obs_ratio = config.get("min_obs_ratio", 0.6)
-        
-        for _, row in pool_df.iterrows():
-            code = row["sec_code"]
-            prices = prices_dict.get(code, [])
-            
-            vols, ns, flags = calc_vol.calc_volatility(
-                prices, windows=windows,
-                annual_factor=annual_factor,
-                min_obs_ratio=min_obs_ratio
-            )
-            
-            vol_max = calc_vol.calc_vol_max(vols)
-            
-            # 合并质量标记
-            all_flags = set()
-            for f in flags.values():
-                all_flags.update(f)
-            quality_flag = ";".join(sorted(all_flags)) if all_flags else "OK"
-            
-            vol_results.append({
-                "sec_code": code,
-                "vol_20d": vols.get(20),
-                "vol_40d": vols.get(40),
-                "vol_90d": vols.get(90),
-                "vol_max": vol_max,
-                "n_20d": ns.get(20),
-                "n_40d": ns.get(40),
-                "n_90d": ns.get(90),
-                "quality_flag": quality_flag,
-            })
-        
-        vol_df = pd.DataFrame(vol_results)
+        vol_df = calc_vol.calc_volatility_batch(
+            codes,
+            prices_dict,
+            windows=windows,
+            annual_factor=annual_factor,
+            min_obs_ratio=min_obs_ratio,
+        )
         
         # 5. 拉取指数成分（通用循环，问财兜底），并打规模分层标签
         logger.info("Step 5: Fetch index components")
@@ -395,8 +369,9 @@ def _get_basic_data(ifind_client, codes: list, trade_date: str,
     static_df = db.load_static(db_path)
     stale = True
     if not static_df.empty and "updated_at" in static_df.columns:
-        last = pd.to_datetime(static_df["updated_at"], errors="coerce").max()
-        if pd.notna(last):
+        ts_series = pd.to_datetime(static_df["updated_at"], errors="coerce", utc=True).dropna()
+        if not ts_series.empty:
+            last = ts_series.iloc[ts_series.argmax()]
             stale = (pd.Timestamp.now(tz="UTC") - last).days >= 7
 
     total_float_missing = (static_df.empty or "total_float_shares" not in static_df.columns

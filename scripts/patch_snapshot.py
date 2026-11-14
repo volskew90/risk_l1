@@ -54,24 +54,29 @@ def main():
         logger.error("No patch data fetched")
         return 1
 
-    # 更新快照表
+    # 批量更新快照表（使用 executemany 替代逐行 UPDATE）
     conn = db.get_conn(db_path)
     updated = 0
     try:
-        for _, row in patch.iterrows():
-            sets, vals = [], []
-            for col in PATCH_COLS:
-                v = row.get(col)
-                if v is not None and v == v:  # 非 None 非 NaN
-                    sets.append(f"{col} = ?")
-                    vals.append(float(v))
-            if sets:
-                conn.execute(
-                    f"UPDATE security_master_daily SET {', '.join(sets)} "
-                    f"WHERE trade_date = ? AND sec_code = ?",
-                    (*vals, args.date, row["sec_code"])
-                )
-                updated += 1
+        avail_cols = [col for col in PATCH_COLS if col in patch.columns]
+        if avail_cols:
+            set_clause = ", ".join(f"{col} = COALESCE(?, {col})" for col in avail_cols)
+            sql = (
+                f"UPDATE security_master_daily SET {set_clause} "
+                f"WHERE trade_date = ? AND sec_code = ?"
+            )
+            params_list = []
+            for row in patch[["sec_code"] + avail_cols].itertuples(index=False):
+                code = row[0]
+                vals = [
+                    float(v) if (v is not None and pd.notna(v)) else None
+                    for v in row[1:]
+                ]
+                if any(v is not None for v in vals):
+                    params_list.append((*vals, args.date, code))
+            if params_list:
+                conn.executemany(sql, params_list)
+                updated = len(params_list)
         conn.commit()
     finally:
         conn.close()
