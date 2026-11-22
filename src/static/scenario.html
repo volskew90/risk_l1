@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IA 情景与单因素敏感性分析 (Scenario Analysis)</title>
+<style>
+:root{--blue:#2457d6;--teal:#0e9384;--purple:#7a5af8;--amber:#d97706;--red:#d92d20;--bg:#f4f6fa;--line:#dfe4ec;--text:#182230;--muted:#667085}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}
+header{background:linear-gradient(135deg,#152b55,#1e428a);color:white;padding:22px 32px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+header h1{margin:0 0 4px;font-size:23px}header p{margin:0;color:#d8e3f8;font-size:13px}
+main{max-width:1600px;margin:auto;padding:20px}
+section{background:white;border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+h2{font-size:16.5px;margin:0 0 12px;display:flex;align-items:center;justify-content:space-between}
+h3{font-size:13.5px;margin:14px 0 8px;color:var(--muted)}
+.tabs{display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--line);padding-bottom:10px}
+.tab-btn{border:1px solid var(--line);background:#f8fafc;color:#344054;padding:10px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:14px;transition:.15s}
+.tab-btn.active{background:var(--blue);color:white;border-color:var(--blue);box-shadow:0 2px 6px rgba(36,87,214,.25)}
+.note{color:var(--muted);font-size:13px;background:#f8fafc;border-left:4px solid var(--blue);padding:10px 14px;border-radius:6px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.field{display:flex;flex-direction:column;gap:4px}.field label{font-size:12px;color:var(--muted);font-weight:500}
+input,select{border:1px solid #c9d1df;border-radius:6px;padding:7px 9px;background:white;width:100%;font-size:13.5px}
+input:focus,select:focus{outline:2px solid #aac0ef;border-color:var(--blue)}
+button{border:0;border-radius:7px;padding:9px 18px;cursor:pointer;background:var(--blue);color:white;font-weight:600;font-size:13.5px}
+button.secondary{background:#e8edf5;color:#27364c}button.small-btn{padding:4px 10px;font-size:12px}button:disabled{opacity:.6}
+.actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:14px}
+.chk-label{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#344054;cursor:pointer;user-select:none}
+.chk-label input{width:auto;margin:0}
+#status{color:var(--muted);font-size:13px}#status.error{color:var(--red);font-weight:600}
+.chart-wrap{position:relative;background:#fcfdff;border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:10px}
+.legend{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:10px;font-size:12.5px}
+.legend-item{display:inline-flex;align-items:center;gap:6px}
+.legend-line{width:22px;height:3px;border-radius:2px;display:inline-block}
+.legend-dash{width:22px;height:0;border-top:2.5px dashed;display:inline-block}
+.inspect-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;background:#f4f7fe;border:1px solid #d0defa;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12.5px}
+.inspect-item span{color:var(--muted);display:block;font-size:11.5px}.inspect-item b{font-size:14px;color:#152b55}
+.scroll{overflow:auto;max-height:520px}
+table{border-collapse:collapse;width:100%;white-space:nowrap;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right}
+th{background:#f8fafc;color:#475467;font-size:12px;position:sticky;top:0;z-index:2}
+th:first-child,td:first-child{text-align:left}
+tr.active-step{background:#eef4ff;font-weight:600}
+.tag{display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600}
+.tag-ok{background:#ecfdf3;color:#027a48}.tag-warn{background:#fffaeb;color:#b54708}
+details summary{cursor:pointer;font-weight:600;color:#27364c;font-size:14px;user-select:none;padding:4px 0}
+.small{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>IA 情景与单因素敏感性分析 (Scenario Analysis)</h1>
+    <p>架空基准单因素推演（Clean Baseline） · 组合联动推演 · 步进扫描与折线图示</p>
+  </div>
+</header>
+<main>
+  <div class="tabs">
+    <button type="button" class="tab-btn active" id="tab_theoretical">模式一：架空基准单因素分析（推荐 · 干净起点）</button>
+    <button type="button" class="tab-btn" id="tab_portfolio">模式二：基于组合的调仓联动推演</button>
+  </div>
+
+  <section>
+    <h2><span>一、情景扫描与步进设定</span><span class="small" id="arch_desc"></span></h2>
+    <div id="note_theoretical" class="note">
+      <b>架空基准原则：</b>不依赖任何现有组合。除当前分析变量<b>物理上必然包含的联动项</b>（例如：个股集中度占组合 <i>w</i> 时，其所属行业集中度必然至少为 <i>w</i>；若为双创/微盘股，双创/微盘集中度也必然为 <i>w</i>）外，其余所有无关指标（如波动率、成交额占比、总/流通股本占比）一律假设处于安全阈值以内（0 触发），确保未触碰阈值时<b>初始 IA 严格从系统给定的基础保证金率（如 25.00%）起步</b>。
+    </div>
+    <div id="note_portfolio" class="note" style="display:none">
+      <b>组合调仓原则：</b>在固定组合总市值不变的前提下，按步长调整目标股票（或目标行业/板块）的集中度，其余股票按原相对权重分配剩余市值，完整重算 L2 集中度、L3 单券 IA 与 L4 组合整体 IA。
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label>1. 选择分析变量 (Factor)</label>
+        <select id="factor"></select>
+      </div>
+      <div class="field" id="archetype_wrap">
+        <label>2. 架空标的身份类别</label>
+        <select id="archetype"></select>
+      </div>
+      <div class="field" id="target_stock_wrap" style="display:none">
+        <label>2. 选择组合内目标股票</label>
+        <select id="target_sec_code"></select>
+      </div>
+      <div class="field">
+        <label>3. 起始值 (%)</label>
+        <input id="start_val" type="number" step="0.1" value="10">
+      </div>
+      <div class="field">
+        <label>4. 每次步长 (+/- %)</label>
+        <input id="step_val" type="number" step="0.1" value="10">
+      </div>
+      <div class="field">
+        <label>5. 步数 (Steps，每次增加/减少多少步)</label>
+        <input id="steps_count" type="number" min="1" max="200" step="1" value="9">
+      </div>
+      <div class="field">
+        <label>6. 终止值 (% · 与步数自动换算)</label>
+        <input id="end_val" type="number" step="0.1" value="100">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" id="run_btn">运行情景分析</button>
+      <button type="button" class="secondary" id="export_btn" disabled>导出 Excel（步进明细与参数）</button>
+      <label class="chk-label" id="compare_all_wrap">
+        <input type="checkbox" id="compare_all"> 同图对比全部 4 类架空标的曲线
+      </label>
+      <label class="chk-label" id="exempt_cap_wrap" style="display:none">
+        <input type="checkbox" id="exempt_capacity" checked> 豁免绝对规模容量限制 (r1 流动性 / r3 总股本 / r4 流通股本)
+      </label>
+      <label class="chk-label">
+        <input type="checkbox" id="apply_upper_im"> 启用少量股票 upper_im 覆盖
+      </label>
+      <span id="status"></span>
+    </div>
+  </section>
+
+  <!-- 模式二专属：组合持仓上传与编辑面板 -->
+  <section id="portfolio_section" style="display:none">
+    <h2><span>组合持仓配置（仅模式二使用）</span></h2>
+    <div class="actions" style="margin-top:0;margin-bottom:12px">
+      <input id="portfolio_file" type="file" accept=".csv,.xlsx" style="max-width:340px">
+      <button class="secondary" id="upload_btn" type="button">上传组合并刷新</button>
+      <button class="secondary" id="add_row_btn" type="button">+ 新增持仓行</button>
+      <span class="small" id="file_name">当前使用内置演示组合</span>
+    </div>
+    <div class="scroll" style="max-height:240px">
+      <table>
+        <thead><tr><th>代码</th><th>名称</th><th>股数</th><th>股价（元）</th><th>操作</th></tr></thead>
+        <tbody id="portfolio_tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 系统风控规则阈值参数（可折叠） -->
+  <section>
+    <details>
+      <summary>二、系统风控规则参数设置（点击展开/收起 · 当前默认采用标准业务规则参数：base_im=25%, r1=100%, r2=30%, 波动率比例=0.4）</summary>
+      <div class="actions" style="margin:10px 0 14px">
+        <button type="button" class="secondary small-btn" id="use_std_params">载入标准规则参数 (r2=30%, r1=100%, vol比例=0.4)</button>
+        <button type="button" class="secondary small-btn" id="use_demo_params">载入演示参数 (r2=1%, r1=15%, vol比例=0.7)</button>
+      </div>
+      <h3>全局与调整项参数</h3>
+      <div class="grid">
+        <div class="field"><label>基础保证金率 base_im (%)</label><input id="base_im" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>合约加点方式</label><select id="contract_add_on_type"><option value="absolute">绝对加点</option><option value="relative">按比例上浮</option></select></div>
+        <div class="field"><label>合约加点值 (%)</label><input id="contract_add_on" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>upper_im (%)</label><input id="upper_im" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>upper_im 比较规则</label><select id="upper_compare"><option value="max">取大（券商A规则1）</option><option value="min">少于阈值取小</option><option value="rule2">券商B规则2（少取upper/多取小）</option></select></div>
+        <div class="field"><label>少量股票阈值（只）</label><input id="upper_position_limit" data-kind="integer" type="number" min="1" step="1"></div>
+        <div class="field"><label>个股阈值：双创非300 (%)</label><input id="stock_weight_threshold_dual" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>个股阈值：其他 (%)</label><input id="stock_weight_threshold_other" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>个股调整比例</label><input id="stock_adj_ratio" type="number" step="0.01"></div>
+        <div class="field"><label>行业集中度阈值 (%)</label><input id="industry_weight_threshold" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>行业调整比例</label><input id="industry_adj_ratio" type="number" step="0.01"></div>
+        <div class="field"><label>90日波动率阈值 (%)</label><input id="vol_90d_threshold" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>波动率调整比例</label><input id="vol_adj_ratio" type="number" step="0.01"></div>
+        <div class="field"><label>双创/微盘集中度阈值 (%)</label><input id="cc_micro_weight_threshold" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>双创/微盘调整比例</label><input id="cc_micro_adj_ratio" type="number" step="0.01"></div>
+      </div>
+      <h3>限制项参数</h3>
+      <div class="grid">
+        <div class="field"><label>r1 流动性阈值 (%)</label><input id="liquidity_threshold" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>r1 成交额上限（元）</label><input id="liquidity_cap" type="number" step="1000000"></div>
+        <div class="field"><label>r2 个股集中度阈值 (%)</label><input id="position_weight_limit" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>r3 总股本阈值 (%)</label><input id="total_share_limit" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>r4 流通股本阈值 (%)</label><input id="float_share_limit" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>r5 行业集中度阈值 (%)</label><input id="industry_weight_limit" data-kind="percent" type="number" step="0.01"></div>
+        <div class="field"><label>r7 双创/微盘阈值 (%)</label><input id="cc_micro_weight_limit" data-kind="percent" type="number" step="0.01"></div>
+      </div>
+    </details>
+  </section>
+
+  <!-- 图表展示区 -->
+  <section>
+    <h2>
+      <span id="chart_title">三、IA 随变量变化趋势图</span>
+      <span class="small">将鼠标悬停或点击图上圆点可查看该步完整联动指标</span>
+    </h2>
+    <div class="inspect-bar" id="inspect_bar"></div>
+    <div class="chart-wrap">
+      <div class="legend" id="chart_legend"></div>
+      <div id="svg_container" style="width:100%;overflow-x:auto"></div>
+    </div>
+  </section>
+
+  <!-- 步进明细表 -->
+  <section>
+    <h2><span>四、情景步进计算明细表</span><span class="small" id="step_summary"></span></h2>
+    <div class="scroll">
+      <table>
+        <thead id="table_head"></thead>
+        <tbody id="table_body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+let initData = null;
+let currentMode = 'theoretical';
+let lastResult = null;
+let lastParams = null;
+
+const $ = id => document.getElementById(id);
+const pct = v => (v === null || v === undefined || Number.isNaN(Number(v))) ? '-' : (Number(v) * 100).toFixed(2) + '%';
+const signedPct = v => {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return '-';
+  const n = Number(v) * 100;
+  return (n > 1e-6 ? '+' : '') + n.toFixed(2) + '%';
+};
+
+const PARAM_IDS = [
+  'base_im','contract_add_on_type','contract_add_on','upper_im','upper_compare','upper_position_limit',
+  'stock_weight_threshold_dual','stock_weight_threshold_other','stock_adj_ratio',
+  'industry_weight_threshold','industry_adj_ratio','vol_90d_threshold','vol_adj_ratio',
+  'cc_micro_weight_threshold','cc_micro_adj_ratio','liquidity_threshold','liquidity_cap',
+  'position_weight_limit','total_share_limit','float_share_limit','industry_weight_limit','cc_micro_weight_limit'
+];
+
+function fillParams(params) {
+  PARAM_IDS.forEach(id => {
+    const el = $(id);
+    if (!el || !(id in params)) return;
+    let v = params[id];
+    if (el.dataset.kind === 'percent') v = Number((v * 100).toFixed(6));
+    el.value = v;
+  });
+}
+
+function readParams() {
+  const p = {};
+  PARAM_IDS.forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    let v = el.value;
+    if (el.tagName === 'SELECT') { p[id] = v; return; }
+    v = Number(v);
+    if (!Number.isFinite(v)) throw new Error(id + ' 不是有效数值');
+    if (el.dataset.kind === 'percent') v /= 100;
+    p[id] = v;
+  });
+  return p;
+}
+
+function syncEndFromSteps() {
+  const start = Number($('start_val').value);
+  const step = Number($('step_val').value);
+  const steps = Math.max(1, Math.min(200, Math.round(Number($('steps_count').value) || 1)));
+  $('steps_count').value = steps;
+  if (Number.isFinite(start) && Number.isFinite(step)) {
+    $('end_val').value = Number((start + steps * step).toFixed(4));
+  }
+}
+
+function syncStepsFromEnd() {
+  const start = Number($('start_val').value);
+  const step = Number($('step_val').value);
+  const end = Number($('end_val').value);
+  if (Number.isFinite(start) && Number.isFinite(step) && Math.abs(step) > 1e-9 && Number.isFinite(end)) {
+    const raw = Math.round((end - start) / step);
+    if (raw >= 1) {
+      $('steps_count').value = Math.min(200, raw);
+    }
+  }
+}
+
+function onFactorChange() {
+  if (!initData) return;
+  const f = $('factor').value;
+  const meta = initData.factors[f];
+  if (!meta) return;
+  $('start_val').value = Number((meta.default_start * 100).toFixed(4));
+  $('step_val').value = Number((meta.default_step * 100).toFixed(4));
+  $('steps_count').value = meta.default_steps;
+  syncEndFromSteps();
+}
+
+function onArchetypeChange() {
+  if (!initData) return;
+  const k = $('archetype').value;
+  const info = initData.archetypes[k];
+  $('arch_desc').textContent = info ? info.desc : '';
+}
+
+function renderPortfolio(rows) {
+  $('portfolio_tbody').innerHTML = rows.map(r => `
+    <tr>
+      <td><input class="sec_code" type="text" value="${r.sec_code}" style="max-width:130px"></td>
+      <td><input class="sec_name" type="text" value="${r.sec_name || ''}" style="max-width:130px"></td>
+      <td><input class="shares" type="number" step="1" value="${r.shares}"></td>
+      <td><input class="price" type="number" min="0.01" step="0.01" value="${r.price}"></td>
+      <td><button type="button" class="secondary small-btn del-row">删除</button></td>
+    </tr>
+  `).join('');
+  document.querySelectorAll('.del-row').forEach(btn => {
+    btn.onclick = e => {
+      if (document.querySelectorAll('#portfolio_tbody tr').length <= 1) return;
+      e.target.closest('tr').remove();
+      refreshTargetStockSelect();
+    };
+  });
+  document.querySelectorAll('#portfolio_tbody .sec_code, #portfolio_tbody .sec_name').forEach(inp => {
+    inp.onchange = refreshTargetStockSelect;
+  });
+  refreshTargetStockSelect();
+}
+
+function getPositions() {
+  return [...document.querySelectorAll('#portfolio_tbody tr')].map(tr => ({
+    sec_code: tr.querySelector('.sec_code').value.trim(),
+    sec_name: tr.querySelector('.sec_name').value.trim(),
+    shares: Number(tr.querySelector('.shares').value),
+    price: Number(tr.querySelector('.price').value),
+  }));
+}
+
+function refreshTargetStockSelect() {
+  const pos = getPositions();
+  const prev = $('target_sec_code').value;
+  $('target_sec_code').innerHTML = pos.map(p => `<option value="${p.sec_code}">${p.sec_code} (${p.sec_name || p.sec_code})</option>`).join('');
+  if (pos.some(p => p.sec_code === prev)) {
+    $('target_sec_code').value = prev;
+  }
+}
+
+function switchTab(mode) {
+  currentMode = mode;
+  $('tab_theoretical').classList.toggle('active', mode === 'theoretical');
+  $('tab_portfolio').classList.toggle('active', mode === 'portfolio');
+  $('note_theoretical').style.display = mode === 'theoretical' ? 'block' : 'none';
+  $('note_portfolio').style.display = mode === 'portfolio' ? 'block' : 'none';
+  $('archetype_wrap').style.display = mode === 'theoretical' ? 'flex' : 'none';
+  $('compare_all_wrap').style.display = mode === 'theoretical' ? 'inline-flex' : 'none';
+  $('target_stock_wrap').style.display = mode === 'portfolio' ? 'flex' : 'none';
+  $('exempt_cap_wrap').style.display = mode === 'portfolio' ? 'inline-flex' : 'none';
+  $('portfolio_section').style.display = mode === 'portfolio' ? 'block' : 'none';
+  runScenario();
+}
+
+async function runScenario() {
+  try {
+    $('status').className = '';
+    $('status').textContent = '正在计算情景步进序列...';
+    $('run_btn').disabled = true;
+    const p = readParams();
+    const start = Number($('start_val').value) / 100;
+    const step = Number($('step_val').value) / 100;
+    const steps = Number($('steps_count').value);
+    const payload = {
+      factor: $('factor').value,
+      start: start,
+      step: step,
+      steps: steps,
+      params: p,
+      apply_upper_im: $('apply_upper_im').checked,
+    };
+
+    let endpoint = '/api/scenario/theoretical';
+    if (currentMode === 'theoretical') {
+      payload.archetype = $('archetype').value;
+      payload.compare_all_archetypes = $('compare_all').checked;
+    } else {
+      endpoint = '/api/scenario/portfolio';
+      payload.positions = getPositions();
+      payload.target_sec_code = $('target_sec_code').value;
+      payload.exempt_capacity_limits = $('exempt_capacity').checked;
+    }
+
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '情景分析计算失败');
+
+    lastResult = data;
+    lastParams = p;
+    $('export_btn').disabled = false;
+    renderAll(data);
+    $('status').textContent = `已完成 ${data.step_count} 个步进点的情景计算`;
+  } catch (e) {
+    $('status').className = 'error';
+    $('status').textContent = e.message;
+  } finally {
+    $('run_btn').disabled = false;
+  }
+}
+
+function renderAll(data) {
+  const rows = data.rows || [];
+  if (!rows.length) return;
+  $('step_summary').textContent = `共 ${rows.length} 个步进状态（点击表格行或图上节点可高亮查看）`;
+  renderTable(data);
+  renderChart(data);
+  inspectStep(0);
+}
+
+function inspectStep(idx) {
+  if (!lastResult || !lastResult.rows || !lastResult.rows[idx]) return;
+  const r = lastResult.rows[idx];
+  const isTheo = lastResult.mode === 'theoretical';
+  const items = isTheo ? [
+    [`第 ${r.step_index} 步 · 变量值`, pct(r.factor_value)],
+    ['最终 IA', pct(r.final_ia)],
+    ['较上一步 ΔIA', signedPct(r.delta_ia)],
+    ['维持保证金率', pct(r.maintenance_im)],
+    ['超限层占比 (restr_mv/mv)', pct(r.restr_ratio)],
+    ['主控限制项', r.active_restriction],
+    ['联动：个股 / 行业 / 双创', `${pct(r.stock_weight)} / ${pct(r.industry_weight)} / ${pct(r.cc_micro_weight)}`],
+    ['调整项 (个股/行业/波动/双创)', `${pct(r.stock_adj)} / ${pct(r.industry_adj)} / ${pct(r.vol_adj)} / ${pct(r.star_adj)}`]
+  ] : [
+    [`第 ${r.step_index} 步 · 变量值`, pct(r.factor_value)],
+    ['组合整体 IA', pct(r.portfolio_ia)],
+    ['组合较上步 ΔIA', signedPct(r.delta_portfolio_ia)],
+    ['目标单券 IA', pct(r.target_stock_ia)],
+    ['单券较上步 ΔIA', signedPct(r.delta_stock_ia)],
+    ['目标维持保证金率', pct(r.maintenance_im)],
+    ['目标主控限制项', `${r.active_restriction} (${pct(r.restr_ratio)})`],
+    ['联动：个股 / 行业 / 双创', `${pct(r.stock_weight)} / ${pct(r.industry_weight)} / ${pct(r.cc_micro_weight)}`]
+  ];
+  $('inspect_bar').innerHTML = items.map(([k, v]) => `<div class="inspect-item"><span>${k}</span><b>${v}</b></div>`).join('');
+
+  document.querySelectorAll('#table_body tr').forEach((tr, i) => {
+    tr.classList.toggle('active-step', i === idx);
+  });
+  document.querySelectorAll('.svg-point-ring').forEach((el, i) => {
+    el.setAttribute('r', Number(el.dataset.idx) === idx ? '7' : '4.5');
+    el.setAttribute('stroke-width', Number(el.dataset.idx) === idx ? '3' : '2');
+  });
+}
+
+function renderChart(data) {
+  const rows = data.rows || [];
+  const W = 1120, H = 430;
+  const padL = 68, padR = 36, padT = 32, padB = 56;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  const xVals = rows.map(r => r.factor_value);
+  const xMin = Math.min(...xVals);
+  const xMax = Math.max(...xVals);
+  const xSpan = Math.max(xMax - xMin, 1e-6);
+  const xPos = v => padL + ((v - xMin) / xSpan) * plotW;
+
+  // 计算 Y 轴范围 [0, max_y]
+  let allY = [0, 1.0];
+  rows.forEach(r => {
+    allY.push(r.final_ia, r.maintenance_im, r.restr_ratio);
+    if (r.target_stock_ia !== undefined) allY.push(r.target_stock_ia);
+  });
+  if (data.comparison_series) {
+    Object.values(data.comparison_series).forEach(s => allY.push(...s.values));
+  }
+  const yMax = Math.min(Math.max(...allY, 0.4) * 1.05, 1.05);
+  const yMin = 0.0;
+  const yPos = v => padT + plotH - ((Math.min(Math.max(v, yMin), yMax) - yMin) / (yMax - yMin)) * plotH;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block;font-family:inherit">`;
+
+  // 1. 水平网格线
+  const yTicks = [0, 0.2, 0.25, 0.4, 0.6, 0.8, 1.0].filter(t => t <= yMax + 0.01);
+  yTicks.forEach(t => {
+    const y = yPos(t);
+    const isBase = data.starting_base_ia && Math.abs(t - data.starting_base_ia) < 1e-4;
+    svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${isBase ? '#93c5fd' : '#eaecf0'}" stroke-width="${isBase ? 1.5 : 1}" ${isBase ? 'stroke-dasharray="4,3"' : ''}/>`;
+    svg += `<text x="${padL - 10}" y="${y + 4}" text-anchor="end" font-size="11.5" fill="#667085">${(t * 100).toFixed(0)}%</text>`;
+  });
+
+  // 2. X 轴步进刻度线
+  rows.forEach((r, idx) => {
+    const x = xPos(r.factor_value);
+    if (rows.length <= 25 || idx % Math.ceil(rows.length / 15) === 0 || idx === rows.length - 1) {
+      svg += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="#f2f4f7" stroke-width="1"/>`;
+      svg += `<text x="${x}" y="${padT + plotH + 20}" text-anchor="middle" font-size="11.5" fill="#475467">${(r.factor_value * 100).toFixed(1)}%</text>`;
+    }
+  });
+  svg += `<text x="${padL + plotW / 2}" y="${H - 8}" text-anchor="middle" font-size="12.5" font-weight="600" fill="#344054">${data.factor_label}</text>`;
+
+  // 3. 阈值拐点垂直参考虚线
+  const markers = (data.threshold_markers || []).filter(m => m.value >= xMin - 1e-6 && m.value <= xMax + 1e-6);
+  markers.forEach((m, mIdx) => {
+    const x = xPos(m.value);
+    const labelY = padT + 14 + (mIdx % 3) * 15;
+    svg += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="${m.color}" stroke-width="1.3" stroke-dasharray="5,4" opacity="0.75"/>`;
+    svg += `<text x="${x + 4}" y="${labelY}" font-size="11" font-weight="600" fill="${m.color}">${m.label}</text>`;
+  });
+
+  const buildPath = (pts) => pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+
+  // 4. 绘制曲线与图例
+  let legendHtml = '';
+  const compKeys = data.comparison_series ? Object.keys(data.comparison_series) : [];
+
+  if (data.mode === 'theoretical' && compKeys.length > 1) {
+    const palette = {
+      normal: '#2457d6',
+      dual_non300: '#d92d20',
+      main_micro: '#7a5af8',
+      sse50: '#0e9384',
+    };
+    compKeys.forEach(ak => {
+      const s = data.comparison_series[ak];
+      const color = palette[ak] || '#2457d6';
+      const pts = rows.map((r, i) => [xPos(r.factor_value), yPos(s.values[i])]);
+      const isPrimary = ak === data.archetype;
+      svg += `<path d="${buildPath(pts)}" fill="none" stroke="${color}" stroke-width="${isPrimary ? 3.2 : 2}" ${isPrimary ? '' : 'stroke-dasharray="6,3"'}/>`;
+      pts.forEach((pt, i) => {
+        svg += `<circle cx="${pt[0]}" cy="${pt[1]}" r="${isPrimary ? 4.5 : 3}" fill="white" stroke="${color}" stroke-width="2" style="cursor:pointer" onclick="inspectStep(${i})" onmouseenter="inspectStep(${i})"/>`;
+      });
+      legendHtml += `<span class="legend-item"><span class="legend-line" style="background:${color}"></span>${s.name}</span>`;
+    });
+  } else if (data.mode === 'theoretical') {
+    // 理论单标的：绘制 最终IA 主线 + 维持保证金率虚线 + 超限占比线
+    const iaPts = rows.map(r => [xPos(r.factor_value), yPos(r.final_ia)]);
+    const imPts = rows.map(r => [xPos(r.factor_value), yPos(r.maintenance_im)]);
+    const restrPts = rows.map(r => [xPos(r.factor_value), yPos(r.restr_ratio)]);
+
+    svg += `<path d="${buildPath(restrPts)}" fill="none" stroke="#d97706" stroke-width="1.8" stroke-dasharray="3,3"/>`;
+    svg += `<path d="${buildPath(imPts)}" fill="none" stroke="#0e9384" stroke-width="2" stroke-dasharray="6,4"/>`;
+    svg += `<path d="${buildPath(iaPts)}" fill="none" stroke="#2457d6" stroke-width="3.2"/>`;
+
+    iaPts.forEach((pt, i) => {
+      svg += `<circle class="svg-point-ring" data-idx="${i}" cx="${pt[0]}" cy="${pt[1]}" r="4.5" fill="white" stroke="#2457d6" stroke-width="2" style="cursor:pointer" onclick="inspectStep(${i})" onmouseenter="inspectStep(${i})"/>`;
+      if (rows.length <= 15) {
+        svg += `<text x="${pt[0]}" y="${pt[1] - 10}" text-anchor="middle" font-size="11" font-weight="600" fill="#152b55">${(rows[i].final_ia * 100).toFixed(1)}%</text>`;
+      }
+    });
+
+    legendHtml = `
+      <span class="legend-item"><span class="legend-line" style="background:#2457d6"></span><b>最终 IA (%)</b></span>
+      <span class="legend-item"><span class="legend-dash" style="border-color:#0e9384"></span>维持保证金率 (base_im + Σ调整项)</span>
+      <span class="legend-item"><span class="legend-dash" style="border-color:#d97706"></span>100% 超限层占比 (restr_mv / mv)</span>
+    `;
+  } else {
+    // 组合推演模式：绘制 组合整体IA + 目标单券IA
+    const portPts = rows.map(r => [xPos(r.factor_value), yPos(r.portfolio_ia)]);
+    const stockPts = rows.map(r => [xPos(r.factor_value), yPos(r.target_stock_ia)]);
+
+    svg += `<path d="${buildPath(stockPts)}" fill="none" stroke="#0e9384" stroke-width="2.2" stroke-dasharray="6,4"/>`;
+    svg += `<path d="${buildPath(portPts)}" fill="none" stroke="#2457d6" stroke-width="3.2"/>`;
+
+    portPts.forEach((pt, i) => {
+      svg += `<circle class="svg-point-ring" data-idx="${i}" cx="${pt[0]}" cy="${pt[1]}" r="4.5" fill="white" stroke="#2457d6" stroke-width="2" style="cursor:pointer" onclick="inspectStep(${i})" onmouseenter="inspectStep(${i})"/>`;
+      if (rows.length <= 15) {
+        svg += `<text x="${pt[0]}" y="${pt[1] - 10}" text-anchor="middle" font-size="11" font-weight="600" fill="#152b55">${(rows[i].portfolio_ia * 100).toFixed(1)}%</text>`;
+      }
+    });
+
+    legendHtml = `
+      <span class="legend-item"><span class="legend-line" style="background:#2457d6"></span><b>组合整体 IA (%)</b></span>
+      <span class="legend-item"><span class="legend-dash" style="border-color:#0e9384"></span>目标单券 (${data.target_sec_code}) 调整后 IA (%)</span>
+    `;
+  }
+
+  // 坐标轴外框线
+  svg += `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="#98a2b3" stroke-width="1.2"/>`;
+  svg += `<line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" stroke="#98a2b3" stroke-width="1.2"/>`;
+  svg += `</svg>`;
+
+  $('chart_legend').innerHTML = legendHtml;
+  $('svg_container').innerHTML = svg;
+}
+
+function renderTable(data) {
+  const rows = data.rows || [];
+  if (data.mode === 'theoretical') {
+    $('table_head').innerHTML = `
+      <tr>
+        <th>步号</th>
+        <th>${data.factor_label}</th>
+        <th>个股集中度</th>
+        <th>联动行业集中度</th>
+        <th>联动双创集中度</th>
+        <th>个股调整</th>
+        <th>行业调整</th>
+        <th>波动率调整</th>
+        <th>双创调整</th>
+        <th>维持保证金率</th>
+        <th>主控限制项</th>
+        <th>超限占比 (restr_mv/mv)</th>
+        <th>最终 IA</th>
+        <th>较上步 ΔIA</th>
+      </tr>
+    `;
+    $('table_body').innerHTML = rows.map((r, i) => `
+      <tr onclick="inspectStep(${i})" style="cursor:pointer">
+        <td>Step ${r.step_index}</td>
+        <td><b>${pct(r.factor_value)}</b></td>
+        <td>${pct(r.stock_weight)}</td>
+        <td>${pct(r.industry_weight)}</td>
+        <td>${pct(r.cc_micro_weight)}</td>
+        <td>${pct(r.stock_adj)}</td>
+        <td>${pct(r.industry_adj)}</td>
+        <td>${pct(r.vol_adj)}</td>
+        <td>${pct(r.star_adj)}</td>
+        <td>${pct(r.maintenance_im)}</td>
+        <td><span class="tag ${r.active_restriction === '无' ? 'tag-ok' : 'tag-warn'}">${r.active_restriction}</span></td>
+        <td>${pct(r.restr_ratio)}</td>
+        <td><b style="color:var(--blue)">${pct(r.final_ia)}</b></td>
+        <td>${signedPct(r.delta_ia)}</td>
+      </tr>
+    `).join('');
+  } else {
+    $('table_head').innerHTML = `
+      <tr>
+        <th>步号</th>
+        <th>${data.factor_label}</th>
+        <th>目标个股集中度</th>
+        <th>目标行业 (${data.target_industry}) 集中度</th>
+        <th>组合双创集中度</th>
+        <th>目标维持保证金率</th>
+        <th>目标主控限制项</th>
+        <th>目标超限占比</th>
+        <th>目标单券 IA</th>
+        <th>单券 ΔIA</th>
+        <th>组合整体 IA</th>
+        <th>组合 ΔIA</th>
+      </tr>
+    `;
+    $('table_body').innerHTML = rows.map((r, i) => `
+      <tr onclick="inspectStep(${i})" style="cursor:pointer">
+        <td>Step ${r.step_index}</td>
+        <td><b>${pct(r.factor_value)}</b></td>
+        <td>${pct(r.stock_weight)}</td>
+        <td>${pct(r.industry_weight)}</td>
+        <td>${pct(r.cc_micro_weight)}</td>
+        <td>${pct(r.maintenance_im)}</td>
+        <td><span class="tag ${r.active_restriction === '无' ? 'tag-ok' : 'tag-warn'}">${r.active_restriction}</span></td>
+        <td>${pct(r.restr_ratio)}</td>
+        <td>${pct(r.target_stock_ia)}</td>
+        <td>${signedPct(r.delta_stock_ia)}</td>
+        <td><b style="color:var(--blue)">${pct(r.portfolio_ia)}</b></td>
+        <td>${signedPct(r.delta_portfolio_ia)}</td>
+      </tr>
+    `).join('');
+  }
+}
+
+async function uploadPortfolio() {
+  const file = $('portfolio_file').files[0];
+  if (!file) {
+    $('status').className = 'error';
+    $('status').textContent = '请先选择 CSV 或 XLSX 文件';
+    return;
+  }
+  try {
+    $('upload_btn').disabled = true;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 32768) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+    }
+    const resp = await fetch('/api/scenario/upload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename: file.name, content: btoa(binary)}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '上传失败');
+    renderPortfolio(data.positions);
+    $('file_name').textContent = `已加载 ${file.name}（${data.positions.length} 只股票）`;
+    await runScenario();
+  } catch (e) {
+    $('status').className = 'error';
+    $('status').textContent = e.message;
+  } finally {
+    $('upload_btn').disabled = false;
+  }
+}
+
+async function exportScenarioExcel() {
+  if (!lastResult) return;
+  try {
+    $('export_btn').disabled = true;
+    const resp = await fetch('/api/scenario/export', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({result: lastResult, params: lastParams}),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || '导出失败');
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
+    a.href = url;
+    a.download = `IA_Scenario_${lastResult.factor}_${stamp}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    $('status').textContent = '情景分析 Excel 已导出';
+  } catch (e) {
+    $('status').className = 'error';
+    $('status').textContent = e.message;
+  } finally {
+    $('export_btn').disabled = false;
+  }
+}
+
+async function init() {
+  const resp = await fetch('/api/init');
+  initData = await resp.json();
+
+  $('factor').innerHTML = Object.entries(initData.factors).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+  $('archetype').innerHTML = Object.entries(initData.archetypes).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('');
+
+  fillParams(initData.standard_params);
+  renderPortfolio(initData.positions);
+  onArchetypeChange();
+  onFactorChange();
+
+  $('factor').onchange = () => { onFactorChange(); runScenario(); };
+  $('archetype').onchange = () => { onArchetypeChange(); runScenario(); };
+  $('target_sec_code').onchange = () => runScenario();
+  $('compare_all').onchange = () => runScenario();
+  $('exempt_capacity').onchange = () => runScenario();
+  $('apply_upper_im').onchange = () => runScenario();
+  $('start_val'). oninput = syncEndFromSteps;
+  $('step_val').oninput = syncEndFromSteps;
+  $('steps_count').oninput = syncEndFromSteps;
+  $('end_val').oninput = syncStepsFromEnd;
+
+  $('tab_theoretical').onclick = () => switchTab('theoretical');
+  $('tab_portfolio').onclick = () => switchTab('portfolio');
+  $('run_btn').onclick = runScenario;
+  $('export_btn').onclick = exportScenarioExcel;
+  $('upload_btn').onclick = uploadPortfolio;
+  $('add_row_btn').onclick = () => {
+    const cur = getPositions();
+    cur.push({sec_code: '600036.SH', sec_name: '招商银行', shares: 10000, price: 38.0});
+    renderPortfolio(cur);
+  };
+  $('use_std_params').onclick = () => { fillParams(initData.standard_params); runScenario(); };
+  $('use_demo_params').onclick = () => { fillParams(initData.demo_params); runScenario(); };
+
+  await runScenario();
+}
+
+init().catch(e => {
+  $('status').className = 'error';
+  $('status').textContent = e.message;
+});
+</script>
+</body>
+</html>
