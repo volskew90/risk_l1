@@ -77,8 +77,8 @@ def _params_with_defaults(params: Dict) -> Dict:
             raise ValueError(f"参数 {key} 必须是非负有限数值")
     if merged["contract_add_on_type"] not in {"absolute", "relative"}:
         raise ValueError("contract_add_on_type 仅支持 absolute / relative")
-    if merged["upper_compare"] not in {"max", "min", "rule2"}:
-        raise ValueError("upper_compare 仅支持 max / min / rule2")
+    if merged["upper_compare"] not in {"max", "min", "rule2", "none"}:
+        raise ValueError("upper_compare 仅支持 max / min / rule2 / none")
     if merged["upper_position_limit"] < 1:
         raise ValueError("upper_position_limit 必须大于等于 1")
     return merged
@@ -277,9 +277,11 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
     )
     out["upper_margin_requirement"] = (out["market_value"] * p["upper_im"]).round(2)
 
-    n_pos = len(out)
+    n_pos = int(p.get("assumed_position_count", 0)) or len(out)
     limit_n = int(p["upper_position_limit"])
-    if p["upper_compare"] == "rule2":
+    if p["upper_compare"] == "none":
+        compared_margin = out["rule_margin_requirement"]
+    elif p["upper_compare"] == "rule2":
         # 券商B规则2：标的数量 < 阈值时直接取 upper_im (B)；标的数量 >= 阈值时取 MIN(A, B)
         if n_pos < limit_n:
             compared_margin = out["upper_margin_requirement"]

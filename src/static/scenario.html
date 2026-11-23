@@ -18,7 +18,9 @@ h3{font-size:13.5px;margin:14px 0 8px;color:var(--muted)}
 .tab-btn.active{background:var(--blue);color:white;border-color:var(--blue);box-shadow:0 2px 6px rgba(36,87,214,.25)}
 .note{color:var(--muted);font-size:13px;background:#f8fafc;border-left:4px solid var(--blue);padding:10px 14px;border-radius:6px;margin-bottom:14px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
-.field{display:flex;flex-direction:column;gap:4px}.field label{font-size:12px;color:var(--muted);font-weight:500}
+.field{display:flex;flex-direction:column;gap:4px;padding:4px 6px;border-radius:6px;transition:.15s}.field label{font-size:12px;color:var(--muted);font-weight:500}
+.field.active-param{background:#eef4ff;border:1px solid #b9d2f7}.field.active-param label{color:#152b55;font-weight:700}
+.field.inactive-param{opacity:.62}
 input,select{border:1px solid #c9d1df;border-radius:6px;padding:7px 9px;background:white;width:100%;font-size:13.5px}
 input:focus,select:focus{outline:2px solid #aac0ef;border-color:var(--blue)}
 button{border:0;border-radius:7px;padding:9px 18px;cursor:pointer;background:var(--blue);color:white;font-weight:600;font-size:13.5px}
@@ -32,9 +34,12 @@ button.secondary{background:#e8edf5;color:#27364c}button.small-btn{padding:4px 1
 .legend-item{display:inline-flex;align-items:center;gap:6px}
 .legend-line{width:22px;height:3px;border-radius:2px;display:inline-block}
 .legend-dash{width:22px;height:0;border-top:2.5px dashed;display:inline-block}
-.inspect-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;background:#f4f7fe;border:1px solid #d0defa;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12.5px}
-.inspect-item span{color:var(--muted);display:block;font-size:11.5px}.inspect-item b{font-size:14px;color:#152b55}
+.inspect-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 12px;background:#f4f7fe;border:1px solid #d0defa;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;min-height:96px;align-items:center}
+@media(max-width:900px){.inspect-bar{grid-template-columns:repeat(2,1fr)}}
+.inspect-item{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inspect-item span{color:var(--muted);display:block;font-size:11.5px}.inspect-item b{font-size:13.5px;color:#152b55}
 .scroll{overflow:auto;max-height:520px}
+.table-fixed-box{overflow:auto;height:420px;border:1px solid var(--line);border-radius:8px}
 table{border-collapse:collapse;width:100%;white-space:nowrap;font-size:13px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right}
 th{background:#f8fafc;color:#475467;font-size:12px;position:sticky;top:0;z-index:2}
@@ -113,7 +118,7 @@ details summary{cursor:pointer;font-weight:600;color:#27364c;font-size:14px;user
         <input type="checkbox" id="exempt_capacity" checked> 豁免绝对规模容量限制 (r1 流动性 / r3 总股本 / r4 流通股本)
       </label>
       <label class="chk-label">
-        <input type="checkbox" id="apply_upper_im"> 启用少量股票 upper_im 覆盖
+        <input type="checkbox" id="disable_restrictions"> 暂不计入限制项 100% 超限（纯看调整项加点斜率）
       </label>
       <span id="status"></span>
     </div>
@@ -136,12 +141,12 @@ details summary{cursor:pointer;font-weight:600;color:#27364c;font-size:14px;user
     </div>
   </section>
 
-  <!-- 系统风控规则阈值参数（可折叠） -->
+  <!-- 系统风控规则阈值参数（默认展开，方便随时调整比例与阈值并实时重绘） -->
   <section>
-    <details>
-      <summary>二、系统风控规则参数设置（点击展开/收起 · 当前默认采用《IA_Margin_Rule.html》标准参数：base_im=25%, r1=100%, r2=15%, 波动率比例=0.4）</summary>
+    <details open>
+      <summary>二、系统风控规则参数设置（修改任意调整比例或阈值后图表将自动重绘；即使按浏览器刷新也会保留您的修改）</summary>
       <div class="actions" style="margin:10px 0 14px">
-        <button type="button" class="secondary small-btn" id="use_std_params">载入新规标准参数 (r2=15%, r1=100%, vol比例=0.4)</button>
+        <button type="button" class="secondary small-btn" id="use_std_params">重置为新规标准参数 (r2=15%, r1=100%, vol比例=0.4)</button>
         <button type="button" class="secondary small-btn" id="use_demo_params">载入旧版演示参数 (r2=1%, r1=15%, vol比例=0.7)</button>
       </div>
       <h3>全局与调整项参数</h3>
@@ -150,7 +155,7 @@ details summary{cursor:pointer;font-weight:600;color:#27364c;font-size:14px;user
         <div class="field"><label>合约加点方式</label><select id="contract_add_on_type"><option value="absolute">绝对加点</option><option value="relative">按比例上浮</option></select></div>
         <div class="field"><label>合约加点值 (%)</label><input id="contract_add_on" data-kind="percent" type="number" step="0.01"></div>
         <div class="field"><label>upper_im (%)</label><input id="upper_im" data-kind="percent" type="number" step="0.01"></div>
-        <div class="field"><label>upper_im 比较规则</label><select id="upper_compare"><option value="max">取大（券商A规则1）</option><option value="min">少于阈值取小</option><option value="rule2">券商B规则2（少取upper/多取小）</option></select></div>
+        <div class="field"><label>upper_im 比较规则</label><select id="upper_compare"><option value="none">不启用 upper_im（纯看第三节规则 IA）</option><option value="max">券商A规则1：取大 MAX(规则IA, upper_im)</option><option value="rule2">券商B规则2：封顶 MIN(规则IA, upper_im)</option><option value="min">少于阈值取小 MIN(规则IA, upper_im)</option></select></div>
         <div class="field"><label>少量股票阈值（只）</label><input id="upper_position_limit" data-kind="integer" type="number" min="1" step="1"></div>
         <div class="field"><label>个股阈值：双创非300 (%)</label><input id="stock_weight_threshold_dual" data-kind="percent" type="number" step="0.01"></div>
         <div class="field"><label>个股阈值：其他 (%)</label><input id="stock_weight_threshold_other" data-kind="percent" type="number" step="0.01"></div>
@@ -183,15 +188,15 @@ details summary{cursor:pointer;font-weight:600;color:#27364c;font-size:14px;user
     </h2>
     <div class="inspect-bar" id="inspect_bar"></div>
     <div class="chart-wrap">
-      <div class="legend" id="chart_legend"></div>
-      <div id="svg_container" style="width:100%;overflow-x:auto"></div>
+      <div class="legend" id="chart_legend" style="min-height:24px"></div>
+      <div id="svg_container" style="width:100%;height:430px;overflow-x:auto"></div>
     </div>
   </section>
 
   <!-- 步进明细表 -->
   <section>
     <h2><span>四、情景步进计算明细表</span><span class="small" id="step_summary"></span></h2>
-    <div class="scroll">
+    <div class="table-fixed-box">
       <table>
         <thead id="table_head"></thead>
         <tbody id="table_body"></tbody>
@@ -247,32 +252,182 @@ function readParams() {
   return p;
 }
 
+function isInputCompleteNumber(el) {
+  if (!el) return false;
+  const raw = String(el.value).trim();
+  if (raw === '' || raw === '-' || raw === '+' || raw.endsWith('.')) return false;
+  const n = Number(raw);
+  return Number.isFinite(n);
+}
+
 function syncEndFromSteps() {
+  // 注意：绝不修改用户当前正在输入的 steps_count / start_val / step_val 自身的值，防止吞掉退格删除键！
+  if (!isInputCompleteNumber($('start_val')) || !isInputCompleteNumber($('step_val')) || !isInputCompleteNumber($('steps_count'))) {
+    return;
+  }
   const start = Number($('start_val').value);
   const step = Number($('step_val').value);
-  const steps = Math.max(1, Math.min(200, Math.round(Number($('steps_count').value) || 1)));
-  $('steps_count').value = steps;
-  if (Number.isFinite(start) && Number.isFinite(step)) {
+  const steps = Math.round(Number($('steps_count').value));
+  if (steps >= 1 && steps <= 200 && Math.abs(step) > 1e-9) {
     $('end_val').value = Number((start + steps * step).toFixed(4));
   }
 }
 
 function syncStepsFromEnd() {
+  if (!isInputCompleteNumber($('start_val')) || !isInputCompleteNumber($('step_val')) || !isInputCompleteNumber($('end_val'))) {
+    return;
+  }
   const start = Number($('start_val').value);
   const step = Number($('step_val').value);
   const end = Number($('end_val').value);
-  if (Number.isFinite(start) && Number.isFinite(step) && Math.abs(step) > 1e-9 && Number.isFinite(end)) {
+  if (Math.abs(step) > 1e-9) {
     const raw = Math.round((end - start) / step);
-    if (raw >= 1) {
-      $('steps_count').value = Math.min(200, raw);
+    if (raw >= 1 && raw <= 200) {
+      $('steps_count').value = raw;
     }
   }
+}
+
+function getActiveParamInfo() {
+  const f = $('factor').value;
+  const arch = $('archetype').value;
+  const compAll = $('compare_all').checked;
+  const noRestr = $('disable_restrictions').checked;
+  const uCmp = $('upper_compare').value;
+  const addOnVal = Number($('contract_add_on').value) || 0;
+  const isDual = arch === 'dual_non300' || arch === 'dual_1800';
+  const isCcMicro = arch === 'dual_non300' || arch === 'main_micro';
+  const isSse50 = arch === 'sse50';
+
+  const active = new Set(['base_im', 'contract_add_on', 'upper_compare']);
+  const reasons = {};
+
+  if (addOnVal > 0) {
+    active.add('contract_add_on_type');
+  } else {
+    reasons['contract_add_on_type'] = '当前「合约加点值」为 0%，请先将「合约加点值 (%)」设为大于 0 的数值以观察加点方式差异。';
+  }
+
+  if (uCmp !== 'none') {
+    active.add('upper_im');
+    if (currentMode === 'portfolio') active.add('upper_position_limit');
+    else reasons['upper_position_limit'] = '在模式一（架空单因素模式）下，选择券商A规则1直接展示 MAX(A, upper_im)、选择券商B规则2直接展示 MIN(A, upper_im) 封顶；股票只数阈值在模式二（真实组合模式）下按组合持仓只数判定。';
+  } else {
+    reasons['upper_im'] = '当前「upper_im 比较规则」选为「不启用」，请先将右侧「upper_im 比较规则」切换为「券商A规则1」或「券商B规则2」。';
+    reasons['upper_position_limit'] = '当前未启用 upper_im 比较规则。';
+  }
+
+  // 调整项参数判定
+  const hasStockDim = f === 'stock_weight' || f === 'industry_weight' || f === 'cc_micro_weight';
+  if (hasStockDim) {
+    active.add('stock_adj_ratio');
+    if (compAll || isDual) active.add('stock_weight_threshold_dual');
+    else reasons['stock_weight_threshold_dual'] = '当前架空标的属于非双创类别（适用 10% 其他阈值）；请将「2. 架空标的身份类别」切换为双创类别或勾选「同图对比全部 5 类」以观察双创 5% 阈值变化。';
+
+    if (compAll || !isDual) active.add('stock_weight_threshold_other');
+    else reasons['stock_weight_threshold_other'] = '当前架空标的属于双创非300类别（适用 5% 双创阈值）；请将「2. 架空标的身份类别」切换为普通股/主板微盘/上证50以观察其他阈值变化。';
+  } else {
+    reasons['stock_adj_ratio'] = '当前分析变量下，个股集中度处于安全阈值内（0.50% < 起征点，个股加点为 0）；请将「1. 选择分析变量」切换为「个股集中度」或「行业/双创集中度」以观察个股调整比例对斜率的影响。';
+    reasons['stock_weight_threshold_dual'] = reasons['stock_adj_ratio'];
+    reasons['stock_weight_threshold_other'] = reasons['stock_adj_ratio'];
+  }
+
+  if (f === 'stock_weight' || f === 'industry_weight' || f === 'cc_micro_weight') {
+    active.add('industry_weight_threshold');
+    active.add('industry_adj_ratio');
+  } else {
+    reasons['industry_weight_threshold'] = '当前分析变量下，行业集中度处于安全阈值内（0.50% < 20% 起征点）；请将「1. 选择分析变量」切换为「申万一级行业集中度」或「个股集中度」。';
+    reasons['industry_adj_ratio'] = reasons['industry_weight_threshold'];
+  }
+
+  if (f === 'vol_90d') {
+    active.add('vol_90d_threshold');
+    active.add('vol_adj_ratio');
+  } else {
+    reasons['vol_90d_threshold'] = '当前分析变量下，架空标的 90 日波动率处于安全阈值内（低于起征点，波动率加点为 0）；请将「1. 选择分析变量」切换为「90日年化波动率 (%)」以观察波动率参数对斜率的影响。';
+    reasons['vol_adj_ratio'] = reasons['vol_90d_threshold'];
+  }
+
+  if (f === 'cc_micro_weight' || ((f === 'stock_weight' || f === 'industry_weight') && (compAll || isCcMicro))) {
+    active.add('cc_micro_weight_threshold');
+    active.add('cc_micro_adj_ratio');
+  } else {
+    reasons['cc_micro_weight_threshold'] = '当前架空标的属于 1800 成分股（非双创/微盘非1800标的，star_adj 恒为 0）；请将「1. 选择分析变量」切为「双创/微盘集中度」或将「2. 架空标的」切为「双创且非1800 / 主板微盘股」。';
+    reasons['cc_micro_adj_ratio'] = reasons['cc_micro_weight_threshold'];
+  }
+
+  // 限制项参数判定
+  if (noRestr) {
+    ['liquidity_threshold','liquidity_cap','position_weight_limit','total_share_limit','float_share_limit','industry_weight_limit','cc_micro_weight_limit'].forEach(k => {
+      reasons[k] = '您当前勾选了「暂不计入限制项 100% 超限」，所有限制项 (r1~r7) 已暂时关闭；取消勾选后即可观察限制项阈值效果。';
+    });
+  } else {
+    if (f === 'liquidity_ratio') {
+      active.add('liquidity_threshold');
+      reasons['liquidity_cap'] = '模式一按无量纲比例（单票市值/20日均成交额）扫描；20 亿元绝对金额上限仅在模式二（真实组合市值）且未豁免容量限制时生效。';
+    } else {
+      reasons['liquidity_threshold'] = '请将「1. 选择分析变量」切换为「单票市值占20日均成交额比例 (%)」以观察 r1 流动性阈值效果。';
+      reasons['liquidity_cap'] = reasons['liquidity_threshold'];
+    }
+
+    if (hasStockDim && (compAll || !isSse50)) {
+      active.add('position_weight_limit');
+    } else if (isSse50) {
+      reasons['position_weight_limit'] = '当前架空标的为「上证50成分股」，根据新规豁免 r2 个股集中度超限（r2 恒为 0）。';
+    } else {
+      reasons['position_weight_limit'] = '请将「1. 选择分析变量」切换为「个股集中度」或「行业/双创集中度」以观察 r2 个股超限阈值效果。';
+    }
+
+    if (f === 'total_share_ratio') active.add('total_share_limit');
+    else reasons['total_share_limit'] = '请将「1. 选择分析变量」切换为「持股占总股本比例 (%)」以观察 r3 总股本阈值效果。';
+
+    if (f === 'float_share_ratio') active.add('float_share_limit');
+    else reasons['float_share_limit'] = '请将「1. 选择分析变量」切换为「持股占流通股本比例 (%)」以观察 r4 流通股本阈值效果。';
+
+    if (f === 'industry_weight' || (f === 'stock_weight' && (compAll || isSse50 || Number($('industry_weight_limit').value) <= Number($('position_weight_limit').value)))) {
+      active.add('industry_weight_limit');
+    } else if (f === 'stock_weight') {
+      reasons['industry_weight_limit'] = '在单票集中度下，因当前 r2 个股超限阈值 (15%) 低于 r5 行业阈值 (40%)，MAX(r2, r5) 始终由 r2 主导；请切换分析变量至「申万一级行业集中度（N≥2）」或切换标的为「上证50（豁免r2）」以观察 r5 效果。';
+    } else {
+      reasons['industry_weight_limit'] = '请将「1. 选择分析变量」切换为「申万一级行业集中度 (%)」以观察 r5 行业超限阈值效果。';
+    }
+
+    if (f === 'cc_micro_weight' || ((f === 'stock_weight' || f === 'industry_weight') && (compAll || isCcMicro) && Number($('cc_micro_weight_limit').value) <= Number($('position_weight_limit').value))) {
+      active.add('cc_micro_weight_limit');
+    } else {
+      reasons['cc_micro_weight_limit'] = '请将「1. 选择分析变量」切换为「双创/微盘板块集中度 (%)」（且 N≥2）以观察 r7 双创/微盘超限阈值效果。';
+    }
+  }
+
+  return { active, reasons };
+}
+
+function highlightActiveParams() {
+  const { active } = getActiveParamInfo();
+  PARAM_IDS.forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    const wrap = el.closest('.field');
+    if (!wrap) return;
+    const isAct = currentMode === 'portfolio' || active.has(id);
+    wrap.classList.toggle('active-param', isAct);
+    wrap.classList.toggle('inactive-param', !isAct);
+  });
 }
 
 function updateGroupSplitVisibility() {
   const f = $('factor').value;
   const show = currentMode === 'theoretical' && (f === 'industry_weight' || f === 'cc_micro_weight');
   $('group_split_wrap').style.display = show ? 'flex' : 'none';
+  if (currentMode === 'theoretical' && f === 'cc_micro_weight') {
+    // 扫描双创/微盘板块集中度时，若当前选的是非双创微盘的 1800 成分股，自动切换至双创非1800股以保持一致
+    const arch = $('archetype').value;
+    if (arch !== 'dual_non300' && arch !== 'main_micro') {
+      $('archetype').value = 'dual_non300';
+      onArchetypeChange();
+    }
+  }
+  highlightActiveParams();
 }
 
 function onFactorChange() {
@@ -350,22 +505,104 @@ function switchTab(mode) {
   runScenario();
 }
 
-async function runScenario() {
+const STORAGE_KEY = 'ia_scenario_ui_state_v3';
+let debounceTimer = null;
+function scheduleRunScenario(delayMs = 450) {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    if (!isInputCompleteNumber($('start_val')) || !isInputCompleteNumber($('step_val')) || !isInputCompleteNumber($('steps_count'))) {
+      return;
+    }
+    if (currentMode === 'theoretical' && ($('factor').value === 'industry_weight' || $('factor').value === 'cc_micro_weight')) {
+      if (!isInputCompleteNumber($('n_stocks_in_group')) || Number($('n_stocks_in_group').value) < 1) return;
+    }
+    for (const id of PARAM_IDS) {
+      const el = $(id);
+      if (el && el.tagName !== 'SELECT' && !isInputCompleteNumber(el)) return;
+    }
+    highlightActiveParams();
+    runScenario(true);
+  }, delayMs);
+}
+
+function saveStateToStorage() {
   try {
-    $('status').className = '';
-    $('status').textContent = '正在计算情景步进序列...';
-    $('run_btn').disabled = true;
+    const state = {
+      currentMode,
+      factor: $('factor').value,
+      archetype: $('archetype').value,
+      n_stocks_in_group: $('n_stocks_in_group').value,
+      start_val: $('start_val').value,
+      step_val: $('step_val').value,
+      steps_count: $('steps_count').value,
+      end_val: $('end_val').value,
+      compare_all: $('compare_all').checked,
+      exempt_capacity: $('exempt_capacity').checked,
+      disable_restrictions: $('disable_restrictions').checked,
+      params: readParams(),
+    };
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (_) {}
+}
+
+function restoreStateFromStorage() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const state = JSON.parse(raw);
+    if (state.params) fillParams(state.params);
+    if (state.factor && initData.factors[state.factor]) $('factor').value = state.factor;
+    if (state.archetype && initData.archetypes[state.archetype]) $('archetype').value = state.archetype;
+    if (state.n_stocks_in_group) $('n_stocks_in_group').value = state.n_stocks_in_group;
+    if (state.start_val !== undefined) $('start_val').value = state.start_val;
+    if (state.step_val !== undefined) $('step_val').value = state.step_val;
+    if (state.steps_count !== undefined) $('steps_count').value = state.steps_count;
+    if (state.end_val !== undefined) $('end_val').value = state.end_val;
+    $('compare_all').checked = Boolean(state.compare_all);
+    $('exempt_capacity').checked = state.exempt_capacity !== undefined ? Boolean(state.exempt_capacity) : true;
+    $('disable_restrictions').checked = Boolean(state.disable_restrictions);
+    onArchetypeChange();
+    updateGroupSplitVisibility();
+    if (state.currentMode === 'portfolio') {
+      currentMode = 'portfolio';
+      $('tab_theoretical').classList.remove('active');
+      $('tab_portfolio').classList.add('active');
+      $('note_theoretical').style.display = 'none';
+      $('note_portfolio').style.display = 'block';
+      $('archetype_wrap').style.display = 'none';
+      $('compare_all_wrap').style.display = 'none';
+      $('target_stock_wrap').style.display = 'flex';
+      $('exempt_cap_wrap').style.display = 'inline-flex';
+      $('portfolio_section').style.display = 'block';
+      updateGroupSplitVisibility();
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function runScenario(silent = false) {
+  try {
+    saveStateToStorage();
+    highlightActiveParams();
+    if (!silent) {
+      $('status').className = '';
+      $('status').textContent = '正在计算情景步进序列...';
+    }
     const p = readParams();
     const start = Number($('start_val').value) / 100;
     const step = Number($('step_val').value) / 100;
-    const steps = Number($('steps_count').value);
+    const steps = Math.max(1, Math.min(200, Math.round(Number($('steps_count').value) || 1)));
     const payload = {
       factor: $('factor').value,
       start: start,
       step: step,
       steps: steps,
       params: p,
-      apply_upper_im: $('apply_upper_im').checked,
+      upper_enabled: p.upper_compare !== 'none',
+      respect_upper_compare: true,
+      disable_restrictions: $('disable_restrictions').checked,
     };
 
     let endpoint = '/api/scenario/theoretical';
@@ -388,16 +625,19 @@ async function runScenario() {
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || '情景分析计算失败');
 
+    const prevScrollY = window.scrollY;
     lastResult = data;
     lastParams = p;
     $('export_btn').disabled = false;
     renderAll(data);
+    if (window.scrollY !== prevScrollY) {
+      window.scrollTo(window.scrollX, prevScrollY);
+    }
+    $('status').className = '';
     $('status').textContent = `已完成 ${data.step_count} 个步进点的情景计算`;
   } catch (e) {
     $('status').className = 'error';
     $('status').textContent = e.message;
-  } finally {
-    $('run_btn').disabled = false;
   }
 }
 
@@ -472,21 +712,30 @@ function renderChart(data) {
 
   let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block;font-family:inherit">`;
 
-  // 1. 水平网格线
-  const yTicks = [0, 0.2, 0.25, 0.4, 0.6, 0.8, 1.0].filter(t => t <= yMax + 0.01);
+  // 1. 水平网格线（左侧均匀刻度 0%~100%，避免 20% 与 25% 标签重叠）
+  const yTicks = [0, 0.2, 0.4, 0.6, 0.8, 1.0].filter(t => t <= yMax + 0.01);
   yTicks.forEach(t => {
     const y = yPos(t);
-    const isBase = data.starting_base_ia && Math.abs(t - data.starting_base_ia) < 1e-4;
-    svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${isBase ? '#93c5fd' : '#eaecf0'}" stroke-width="${isBase ? 1.5 : 1}" ${isBase ? 'stroke-dasharray="4,3"' : ''}/>`;
+    svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#eaecf0" stroke-width="1"/>`;
     svg += `<text x="${padL - 10}" y="${y + 4}" text-anchor="end" font-size="11.5" fill="#667085">${(t * 100).toFixed(0)}%</text>`;
   });
+  if (data.starting_base_ia && data.starting_base_ia <= yMax) {
+    const yBase = yPos(data.starting_base_ia);
+    svg += `<line x1="${padL}" y1="${yBase}" x2="${W - padR}" y2="${yBase}" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+    svg += `<text x="${W - padR - 4}" y="${yBase - 5}" text-anchor="end" font-size="10.5" fill="#2457d6">基准 ${(data.starting_base_ia * 100).toFixed(1)}%</text>`;
+  }
 
   // 2. X 轴步进刻度线
+  const fmtX = v => {
+    const p = v * 100;
+    return (Math.abs(p - Math.round(p)) < 1e-3 ? p.toFixed(0) : (Math.abs(p * 10 - Math.round(p * 10)) < 1e-3 ? p.toFixed(1) : p.toFixed(2))) + '%';
+  };
+  const xLabelStride = rows.length <= 26 ? 1 : Math.ceil(rows.length / 20);
   rows.forEach((r, idx) => {
     const x = xPos(r.factor_value);
-    if (rows.length <= 25 || idx % Math.ceil(rows.length / 15) === 0 || idx === rows.length - 1) {
+    if (idx % xLabelStride === 0 || idx === rows.length - 1) {
       svg += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="#f2f4f7" stroke-width="1"/>`;
-      svg += `<text x="${x}" y="${padT + plotH + 20}" text-anchor="middle" font-size="11.5" fill="#475467">${(r.factor_value * 100).toFixed(1)}%</text>`;
+      svg += `<text x="${x}" y="${padT + plotH + 20}" text-anchor="middle" font-size="11" fill="#475467">${fmtX(r.factor_value)}</text>`;
     }
   });
   svg += `<text x="${padL + plotW / 2}" y="${H - 8}" text-anchor="middle" font-size="12.5" font-weight="600" fill="#344054">${data.factor_label}</text>`;
@@ -526,24 +775,37 @@ function renderChart(data) {
       legendHtml += `<span class="legend-item"><span class="legend-line" style="background:${color}"></span>${s.name}</span>`;
     });
   } else if (data.mode === 'theoretical') {
-    // 理论单标的：绘制 最终IA 主线 + 维持保证金率虚线 + 超限占比线
+    // 理论单标的：绘制 最终IA 主线 + 维持保证金率虚线 + 超限占比线（若启用 upper_im 则同时绘制规则IA与upper_im水平线）
     const iaPts = rows.map(r => [xPos(r.factor_value), yPos(r.final_ia)]);
+    const ruleIaPts = rows.map(r => [xPos(r.factor_value), yPos(r.rule_ia)]);
     const imPts = rows.map(r => [xPos(r.factor_value), yPos(r.maintenance_im)]);
     const restrPts = rows.map(r => [xPos(r.factor_value), yPos(r.restr_ratio)]);
+    const upperActive = $('upper_compare').value !== 'none';
+
+    if (upperActive && rows[0] && rows[0].upper_ia !== undefined) {
+      const yUp = yPos(rows[0].upper_ia);
+      svg += `<line x1="${padL}" y1="${yUp}" x2="${W - padR}" y2="${yUp}" stroke="#7a5af8" stroke-width="1.6" stroke-dasharray="6,3"/>`;
+      svg += `<text x="${W - padR - 4}" y="${yUp - 5}" text-anchor="end" font-size="11" font-weight="600" fill="#7a5af8">upper_im ${(rows[0].upper_ia * 100).toFixed(1)}%</text>`;
+      svg += `<path d="${buildPath(ruleIaPts)}" fill="none" stroke="#93c5fd" stroke-width="2" stroke-dasharray="4,3"/>`;
+    }
 
     svg += `<path d="${buildPath(restrPts)}" fill="none" stroke="#d97706" stroke-width="1.8" stroke-dasharray="3,3"/>`;
     svg += `<path d="${buildPath(imPts)}" fill="none" stroke="#0e9384" stroke-width="2" stroke-dasharray="6,4"/>`;
     svg += `<path d="${buildPath(iaPts)}" fill="none" stroke="#2457d6" stroke-width="3.2"/>`;
 
+    const ptLabelStride = rows.length <= 30 ? 1 : Math.ceil(rows.length / 20);
+    const fontSize = rows.length <= 16 ? '11' : '9.5';
     iaPts.forEach((pt, i) => {
       svg += `<circle class="svg-point-ring" data-idx="${i}" cx="${pt[0]}" cy="${pt[1]}" r="4.5" fill="white" stroke="#2457d6" stroke-width="2" style="cursor:pointer" onclick="inspectStep(${i})" onmouseenter="inspectStep(${i})"/>`;
-      if (rows.length <= 15) {
-        svg += `<text x="${pt[0]}" y="${pt[1] - 10}" text-anchor="middle" font-size="11" font-weight="600" fill="#152b55">${(rows[i].final_ia * 100).toFixed(1)}%</text>`;
+      if (i % ptLabelStride === 0 || i === rows.length - 1) {
+        const yOff = (rows.length > 16 && i % 2 === 1) ? -16 : -8;
+        svg += `<text x="${pt[0]}" y="${Math.max(padT + 10, pt[1] + yOff)}" text-anchor="middle" font-size="${fontSize}" font-weight="600" fill="#152b55">${(rows[i].final_ia * 100).toFixed(1)}%</text>`;
       }
     });
 
     legendHtml = `
       <span class="legend-item"><span class="legend-line" style="background:#2457d6"></span><b>最终 IA (%)</b></span>
+      ${upperActive ? '<span class="legend-item"><span class="legend-dash" style="border-color:#93c5fd"></span>未截断前第三节规则 IA</span><span class="legend-item"><span class="legend-dash" style="border-color:#7a5af8"></span>upper_im 线</span>' : ''}
       <span class="legend-item"><span class="legend-dash" style="border-color:#0e9384"></span>维持保证金率 (base_im + Σ调整项)</span>
       <span class="legend-item"><span class="legend-dash" style="border-color:#d97706"></span>100% 超限层占比 (restr_mv / mv)</span>
     `;
@@ -555,10 +817,13 @@ function renderChart(data) {
     svg += `<path d="${buildPath(stockPts)}" fill="none" stroke="#0e9384" stroke-width="2.2" stroke-dasharray="6,4"/>`;
     svg += `<path d="${buildPath(portPts)}" fill="none" stroke="#2457d6" stroke-width="3.2"/>`;
 
+    const ptLabelStride = rows.length <= 30 ? 1 : Math.ceil(rows.length / 20);
+    const fontSize = rows.length <= 16 ? '11' : '9.5';
     portPts.forEach((pt, i) => {
       svg += `<circle class="svg-point-ring" data-idx="${i}" cx="${pt[0]}" cy="${pt[1]}" r="4.5" fill="white" stroke="#2457d6" stroke-width="2" style="cursor:pointer" onclick="inspectStep(${i})" onmouseenter="inspectStep(${i})"/>`;
-      if (rows.length <= 15) {
-        svg += `<text x="${pt[0]}" y="${pt[1] - 10}" text-anchor="middle" font-size="11" font-weight="600" fill="#152b55">${(rows[i].portfolio_ia * 100).toFixed(1)}%</text>`;
+      if (i % ptLabelStride === 0 || i === rows.length - 1) {
+        const yOff = (rows.length > 16 && i % 2 === 1) ? -16 : -8;
+        svg += `<text x="${pt[0]}" y="${Math.max(padT + 10, pt[1] + yOff)}" text-anchor="middle" font-size="${fontSize}" font-weight="600" fill="#152b55">${(rows[i].portfolio_ia * 100).toFixed(1)}%</text>`;
       }
     });
 
@@ -723,27 +988,57 @@ async function init() {
   $('factor').innerHTML = Object.entries(initData.factors).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
   $('archetype').innerHTML = Object.entries(initData.archetypes).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('');
 
-  fillParams(initData.standard_params);
+  const stdInitParams = Object.assign({}, initData.standard_params, { upper_compare: 'none' });
+  fillParams(stdInitParams);
   renderPortfolio(initData.positions);
   onArchetypeChange();
   onFactorChange();
+  restoreStateFromStorage();
 
-  $('factor').onchange = () => { onFactorChange(); runScenario(); };
-  $('archetype').onchange = () => { onArchetypeChange(); runScenario(); };
-  $('target_sec_code').onchange = () => runScenario();
-  $('compare_all').onchange = () => runScenario();
-  $('n_stocks_in_group').oninput = () => runScenario();
-  $('n_stocks_in_group').onchange = () => runScenario();
-  $('exempt_capacity').onchange = () => runScenario();
-  $('apply_upper_im').onchange = () => runScenario();
-  $('start_val'). oninput = syncEndFromSteps;
-  $('step_val').oninput = syncEndFromSteps;
-  $('steps_count').oninput = syncEndFromSteps;
-  $('end_val').oninput = syncStepsFromEnd;
+  $('factor').onchange = () => { onFactorChange(); runScenario(true); };
+  $('archetype').onchange = () => { onArchetypeChange(); highlightActiveParams(); runScenario(true); };
+  $('target_sec_code').onchange = () => runScenario(true);
+  $('compare_all').onchange = () => { highlightActiveParams(); runScenario(true); };
+  $('n_stocks_in_group').oninput = () => scheduleRunScenario(450);
+  $('n_stocks_in_group').onchange = () => scheduleRunScenario(50);
+  $('exempt_capacity').onchange = () => runScenario(true);
+  $('disable_restrictions').onchange = () => { highlightActiveParams(); runScenario(true); };
+  $('start_val').oninput = () => { syncEndFromSteps(); scheduleRunScenario(450); };
+  $('step_val').oninput = () => { syncEndFromSteps(); scheduleRunScenario(450); };
+  $('steps_count').oninput = () => { syncEndFromSteps(); scheduleRunScenario(450); };
+  $('end_val').oninput = () => { syncStepsFromEnd(); scheduleRunScenario(450); };
+  $('start_val').onchange = () => { syncEndFromSteps(); scheduleRunScenario(50); };
+  $('step_val').onchange = () => { syncEndFromSteps(); scheduleRunScenario(50); };
+  $('steps_count').onchange = () => { syncEndFromSteps(); scheduleRunScenario(50); };
+  $('end_val').onchange = () => { syncStepsFromEnd(); scheduleRunScenario(50); };
+
+  // 给全部 22 个系统风控规则参数输入框绑定平滑重算事件与精准状态反馈
+  PARAM_IDS.forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    const onParamEdit = (delay) => {
+      if (el.tagName !== 'SELECT' && !isInputCompleteNumber(el)) return;
+      if (id === 'upper_compare') {
+        if (el.value === 'rule2') $('upper_position_limit').value = 5;
+        else if (el.value === 'max') $('upper_position_limit').value = 20;
+      }
+      const { active, reasons } = getActiveParamInfo();
+      highlightActiveParams();
+      if (currentMode === 'theoretical' && !active.has(id)) {
+        $('status').className = 'error';
+        $('status').textContent = '提示：' + (reasons[id] || '该参数在当前选择的分析维度下未触发。');
+        saveStateToStorage();
+        return;
+      }
+      scheduleRunScenario(delay);
+    };
+    el.oninput = () => onParamEdit(450);
+    el.onchange = () => onParamEdit(50);
+  });
 
   $('tab_theoretical').onclick = () => switchTab('theoretical');
   $('tab_portfolio').onclick = () => switchTab('portfolio');
-  $('run_btn').onclick = runScenario;
+  $('run_btn').onclick = () => runScenario(false);
   $('export_btn').onclick = exportScenarioExcel;
   $('upload_btn').onclick = uploadPortfolio;
   $('add_row_btn').onclick = () => {
@@ -751,8 +1046,16 @@ async function init() {
     cur.push({sec_code: '600036.SH', sec_name: '招商银行', shares: 10000, price: 38.0});
     renderPortfolio(cur);
   };
-  $('use_std_params').onclick = () => { fillParams(initData.standard_params); runScenario(); };
-  $('use_demo_params').onclick = () => { fillParams(initData.demo_params); runScenario(); };
+  $('use_std_params').onclick = () => {
+    fillParams(Object.assign({}, initData.standard_params, { upper_compare: 'none' }));
+    highlightActiveParams();
+    runScenario(false);
+  };
+  $('use_demo_params').onclick = () => {
+    fillParams(Object.assign({}, initData.demo_params, { upper_compare: 'none' }));
+    highlightActiveParams();
+    runScenario(false);
+  };
 
   await runScenario();
 }

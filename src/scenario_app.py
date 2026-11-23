@@ -563,15 +563,49 @@ def run_theoretical_scenario(payload: Dict) -> Dict:
 
     raw_params = dict(margin.standard_margin_params())
     raw_params.update(payload.get("params") or {})
-    apply_upper_im = bool(payload.get("apply_upper_im", False))
+    disable_restrictions = bool(payload.get("disable_restrictions", False))
     calc_params = dict(raw_params)
-    if not apply_upper_im:
-        # 设为 1 使单行架空标的不被 "< 20 只强行取 upper_im (80%)" 掩盖真实规则 IA 曲线
-        calc_params["upper_position_limit"] = 1
+
+    # 处理架空单票模式下的 upper_im 比较规则：
+    # 1) 默认关闭 upper_im（即 upper_compare = "none"），保证起始 IA 严格等于系统给定的 base_im（如 25%）；
+    # 2) 当用户显式开启 upper_im（如 apply_upper_im=True，或在前端/params 中显式选择 rule2 / min / max）时：
+    #    - 规则 1 (max) / 少于阈值取小 (min) 生效区间是 "n_pos < upper_position_limit"，
+    #      由于架空模式 df_in 只有 1 行，设 assumed_position_count = 1 (< limit) 使其生效；
+    #    - 规则 2 (rule2，券商B) 的核心比较公式是 "标的数量 >= 阈值时取 MIN(A, upper_im)"
+    #      （若按 n_pos=1 < 5 则会无脑变成恒等于 80% 的死直线），因此在架空单票模式下，
+    #      为 rule2 设定 assumed_position_count = max(limit_n, 5)，以正确展示 MIN(A, upper_im) 封顶曲线！
+    user_params = payload.get("params") or {}
+    explicit_upper_cmp = user_params.get("upper_compare")
+    if payload.get("apply_upper_im") is True or payload.get("upper_enabled") is True:
+        upper_cmp = explicit_upper_cmp if explicit_upper_cmp in {"max", "min", "rule2"} else "max"
+    elif explicit_upper_cmp in {"rule2", "min"}:
+        upper_cmp = explicit_upper_cmp
+    elif explicit_upper_cmp == "max" and payload.get("respect_upper_compare") is True:
+        upper_cmp = "max"
     else:
-        calc_params["upper_position_limit"] = max(
-            int(raw_params.get("upper_position_limit", 20)), 2
-        )
+        upper_cmp = "none"
+
+    calc_params["upper_compare"] = upper_cmp
+    limit_n = max(int(calc_params.get("upper_position_limit", 20)), 1)
+    if upper_cmp == "none":
+        calc_params["upper_position_limit"] = 1
+    elif upper_cmp == "rule2":
+        # 券商B规则2在架空单因素分析中展示 MIN(A, upper_im) 封顶效应
+        calc_params["assumed_position_count"] = max(limit_n, 5)
+    else:
+        # 券商A规则1 (max) 或 min 在架空单因素分析中展示 MAX(A, upper_im) / MIN(A, upper_im) 效应
+        calc_params["upper_position_limit"] = max(limit_n, 2)
+        calc_params["assumed_position_count"] = 1
+
+    if disable_restrictions:
+        # 当用户勾选“仅观察调整项斜率（不计入限制项100%超限）”时，放宽限制项阈值使 restr_mv = 0
+        calc_params["liquidity_threshold"] = 1e9
+        calc_params["liquidity_cap"] = 1e18
+        calc_params["position_weight_limit"] = 100.0
+        calc_params["total_share_limit"] = 100.0
+        calc_params["float_share_limit"] = 100.0
+        calc_params["industry_weight_limit"] = 100.0
+        calc_params["cc_micro_weight_limit"] = 100.0
 
     p = margin._params_with_defaults(calc_params)
 
@@ -705,13 +739,32 @@ def run_portfolio_scenario(payload: Dict) -> Dict:
         target_code = str(base_merged["sec_code"].iloc[0])
 
     exempt_capacity = bool(payload.get("exempt_capacity_limits", True))
-    apply_upper_im = bool(payload.get("apply_upper_im", False))
+    disable_restrictions = bool(payload.get("disable_restrictions", False))
 
     raw_params = dict(margin.standard_margin_params())
-    raw_params.update(payload.get("params") or {})
+    user_params = payload.get("params") or {}
+    raw_params.update(user_params)
     calc_params = dict(raw_params)
-    if not apply_upper_im:
+    explicit_upper_cmp = user_params.get("upper_compare")
+    if payload.get("apply_upper_im") is True or payload.get("upper_enabled") is True:
+        upper_cmp = explicit_upper_cmp if explicit_upper_cmp in {"max", "min", "rule2"} else "max"
+    elif explicit_upper_cmp in {"rule2", "min"}:
+        upper_cmp = explicit_upper_cmp
+    elif explicit_upper_cmp == "max" and payload.get("respect_upper_compare") is True:
+        upper_cmp = "max"
+    else:
+        upper_cmp = "none"
+    calc_params["upper_compare"] = upper_cmp
+    if upper_cmp == "none":
         calc_params["upper_position_limit"] = 1
+    if disable_restrictions:
+        calc_params["liquidity_threshold"] = 1e9
+        calc_params["liquidity_cap"] = 1e18
+        calc_params["position_weight_limit"] = 100.0
+        calc_params["total_share_limit"] = 100.0
+        calc_params["float_share_limit"] = 100.0
+        calc_params["industry_weight_limit"] = 100.0
+        calc_params["cc_micro_weight_limit"] = 100.0
     p = margin._params_with_defaults(calc_params)
 
     step_values = generate_step_values(
