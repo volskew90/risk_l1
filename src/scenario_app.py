@@ -27,31 +27,39 @@ from src import concentration, margin, webapp
 
 SCENARIO_PAGE = ROOT / "src" / "static" / "scenario.html"
 
-# 架空标的类别定义
+# 架空标的类别定义（对齐《IA_Margin_Rule.html》第四、五、十二节）
 ARCHETYPES = {
     "normal": {
-        "name": "普通非双创微盘股（主板300/500/1000）",
+        "name": "普通非双创微盘股（主板1800成分股）",
         "sec_code": "600000.SH",
         "is_sse50": 0,
         "is_csi300": 1,
         "is_cc_micro": 0,
-        "desc": "个股10%起征；个股集中度同步带动行业集中度，不触发双创微盘，受r2/r5约束",
+        "desc": "个股10%起征，r2阈值15%；同步带动行业集中度，不触发双创微盘(star_adj=0, r7=0)",
     },
     "dual_non300": {
-        "name": "双创且非沪深300股（科创/创业板微盘）",
+        "name": "双创且非1800成分股（科创/创业板微盘）",
         "sec_code": "688001.SH",
         "is_sse50": 0,
         "is_csi300": 0,
         "is_cc_micro": 1,
-        "desc": "个股5%起征；个股集中度同步带动行业集中度与双创微盘集中度，受r2/r5/r7约束",
+        "desc": "个股5%起征，r2阈值15%；同步带动行业集中度与双创微盘集中度(触发star_adj与r7)",
+    },
+    "dual_1800": {
+        "name": "双创但属中证500/1000（双创非300，属1800）",
+        "sec_code": "300001.SZ",
+        "is_sse50": 0,
+        "is_csi300": 0,
+        "is_cc_micro": 0,
+        "desc": "个股5%起征，r2阈值15%；同步带动行业集中度，但属1800成分股豁免star_adj与r7",
     },
     "main_micro": {
-        "name": "主板微盘股（非300/500/1000主板股）",
+        "name": "主板微盘股（非双创且非1800成分股）",
         "sec_code": "600999.SH",
         "is_sse50": 0,
         "is_csi300": 0,
         "is_cc_micro": 1,
-        "desc": "个股10%起征；个股集中度同步带动行业集中度与双创微盘集中度，受r2/r5/r7约束",
+        "desc": "个股10%起征，r2阈值15%；同步带动行业集中度与双创微盘集中度(触发star_adj与r7)",
     },
     "sse50": {
         "name": "上证50成分股（豁免r2个股超限）",
@@ -238,20 +246,27 @@ def _build_safe_baseline_row(archetype_key: str, p: Dict) -> Dict:
 
 
 def _apply_theoretical_factor_at_step(
-    base_row: Dict, factor: str, x_val: float, p: Dict
+    base_row: Dict,
+    factor: str,
+    x_val: float,
+    p: Dict,
+    n_stocks_in_group: int = 1,
 ) -> Dict:
     """
     在架空基准模式下，将目标分析因子设为 x_val，并同步更新其物理上必然包含的联动项，
     而保持所有非必然相关的维度在安全阈值内（0 触发）。
+    当扫描『行业集中度』或『双创/微盘集中度』时，支持通过 n_stocks_in_group（该行业/板块由 N 只股票平分）
+    联动计算单票个股集中度 w = x_val / N。
     """
     row = dict(base_row)
     total_mv = row["total_mv"]
     price = row["price"]
+    n_split = max(int(n_stocks_in_group or 1), 1)
 
     if factor == "stock_weight":
         # 个股集中度 = x_val：
         # 1) 必然带动其所在行业的集中度至少为 x_val（假设无其他同行业股票额外垫高，weight_in_industry = 1.0）
-        # 2) 若该架空股票属于双创/微盘（is_cc_micro == 1），必然同步带动双创/微盘集中度为 x_val
+        # 2) 若该架空股票属于双创/微盘非1800（is_cc_micro == 1），必然同步带动双创/微盘集中度为 x_val
         # 3) 波动率、流动性、股本保持在安全阈值内（不触发）
         w = max(float(x_val), 1e-6)
         mv = w * total_mv
@@ -288,27 +303,71 @@ def _apply_theoretical_factor_at_step(
         )
 
     elif factor == "industry_weight":
-        # 行业集中度 = x_val（假设由同行业内多只分散个股构成，单票个股集中度保持在安全阈值内）
-        # 若该行业标的属于双创/微盘，同步带动双创微盘集中度；否则不触发双创微盘
+        # 行业集中度 = x_val，该行业内由 n_split 只等权股票平分：
+        # 单票个股集中度 w_stock = x_val / n_split，行业内贡献度 = 1 / n_split
         w_ind = max(float(x_val), 1e-6)
         ind_mv = w_ind * total_mv
+        w_stock = w_ind / n_split
+        mv = w_stock * total_mv
+        abs_shares = mv / price
+        row["market_value"] = mv
+        row["abs_shares"] = abs_shares
+        row["weight_in_portfolio"] = w_stock
         row["industry_mv"] = ind_mv
         row["industry_weight"] = w_ind
-        row["weight_in_industry"] = row["market_value"] / ind_mv
+        row["weight_in_industry"] = 1.0 / n_split
         if row["is_cc_micro"] == 1:
             row["cc_micro_mv"] = ind_mv
             row["cc_micro_weight"] = w_ind
-            row["weight_in_cc_micro"] = row["market_value"] / ind_mv
+            row["weight_in_cc_micro"] = 1.0 / n_split
+        row["avg_amt_20d"] = (
+            mv / (p["liquidity_threshold"] * 0.1)
+            if p["liquidity_threshold"] > 0
+            else 1e12
+        )
+        row["total_shares"] = (
+            abs_shares / (p["total_share_limit"] * 0.1)
+            if p["total_share_limit"] > 0
+            else 1e12
+        )
+        row["total_float_shares"] = (
+            abs_shares / (p["float_share_limit"] * 0.1)
+            if p["float_share_limit"] > 0
+            else 1e12
+        )
 
     elif factor == "cc_micro_weight":
-        # 双创/微盘集中度 = x_val（假设由板块内不同行业的多只分散个股构成，单票与单行业均在安全阈值内）
-        w_cc = max(float(x_val), 0.0)
+        # 双创/微盘集中度 = x_val，该板块内由 n_split 只等权股票平分：
+        # 单票个股集中度 w_stock = x_val / n_split，且单票所属行业集中度至少为 w_stock
+        w_cc = max(float(x_val), 1e-6)
         cc_mv = w_cc * total_mv
+        w_stock = w_cc / n_split
+        mv = w_stock * total_mv
+        abs_shares = mv / price
         row["is_cc_micro"] = 1
+        row["market_value"] = mv
+        row["abs_shares"] = abs_shares
+        row["weight_in_portfolio"] = w_stock
+        row["industry_mv"] = mv
+        row["industry_weight"] = w_stock
+        row["weight_in_industry"] = 1.0
         row["cc_micro_mv"] = cc_mv
         row["cc_micro_weight"] = w_cc
-        row["weight_in_cc_micro"] = (
-            row["market_value"] / cc_mv if cc_mv > 0 else 0.0
+        row["weight_in_cc_micro"] = 1.0 / n_split
+        row["avg_amt_20d"] = (
+            mv / (p["liquidity_threshold"] * 0.1)
+            if p["liquidity_threshold"] > 0
+            else 1e12
+        )
+        row["total_shares"] = (
+            abs_shares / (p["total_share_limit"] * 0.1)
+            if p["total_share_limit"] > 0
+            else 1e12
+        )
+        row["total_float_shares"] = (
+            abs_shares / (p["float_share_limit"] * 0.1)
+            if p["float_share_limit"] > 0
+            else 1e12
         )
 
     elif factor == "vol_90d":
@@ -494,6 +553,7 @@ def run_theoretical_scenario(payload: Dict) -> Dict:
     if archetype_key not in ARCHETYPES:
         archetype_key = "normal"
 
+    n_stocks_in_group = max(int(payload.get("n_stocks_in_group") or 1), 1)
     compare_all = bool(payload.get("compare_all_archetypes", False))
 
     def _eval_series_for_arch(arch_k: str) -> List[Dict]:
@@ -501,7 +561,9 @@ def run_theoretical_scenario(payload: Dict) -> Dict:
         records = []
         prev_ia = None
         for idx, x_val in enumerate(step_values):
-            step_row = _apply_theoretical_factor_at_step(base_row, factor, x_val, p)
+            step_row = _apply_theoretical_factor_at_step(
+                base_row, factor, x_val, p, n_stocks_in_group=n_stocks_in_group
+            )
             df_in = pd.DataFrame([step_row])
             res = margin.calculate_stock_margin(df_in, calc_params).iloc[0]
 
@@ -912,7 +974,7 @@ class ScenarioHandler(BaseHTTPRequestHandler):
                 200,
                 {
                     "standard_params": margin.standard_margin_params(),
-                    "demo_params": margin.default_margin_params(),
+                    "demo_params": margin.legacy_demo_margin_params(),
                     "archetypes": ARCHETYPES,
                     "factors": FACTOR_META,
                     "positions": portfolio.to_dict(orient="records"),

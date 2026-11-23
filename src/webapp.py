@@ -264,7 +264,31 @@ def _fetch_security_data(codes: list) -> pd.DataFrame:
     rows = []
     for code in codes:
         if code not in basic.index or code not in daily.index:
-            raise RuntimeError(f"iFinD 缺少证券基础数据: {code}")
+            # 第八节：不在 A 股标的表中的标的按 100% 计收兜底，不中断组合计算
+            rows.append(
+                {
+                    "sec_code": code,
+                    "sec_name": code,
+                    "board": "未知",
+                    "ind_sw_l1_code": None,
+                    "ind_sw_l1_name": concentration.UNKNOWN_INDUSTRY,
+                    "total_shares": np.nan,
+                    "total_float_shares": np.nan,
+                    "avg_amt_20d": np.nan,
+                    "vol_90d": np.nan,
+                    "close": np.nan,
+                    "is_sse50": 0,
+                    "is_csi300": 0,
+                    "is_csi500": 0,
+                    "is_csi1000": 0,
+                    "is_cc_micro": 0,
+                    "is_suspended": 0,
+                    "is_risk_warning": 0,
+                    "is_unknown_security": 1,
+                    "as_of_date": trade_date,
+                }
+            )
+            continue
         series = prices.get(code, [])
         vols, _, _ = calc_vol.calc_volatility(
             series, windows=[90], min_obs_ratio=min_obs_ratio
@@ -272,6 +296,8 @@ def _fetch_security_data(codes: list) -> pd.DataFrame:
         valid_prices = [float(v) for v in series if pd.notna(v) and float(v) > 0]
         is_susp = 1 if (not series or pd.isna(series[-1]) or float(series[-1] or 0) <= 0) else 0
         b, d = basic.loc[code], daily.loc[code]
+        ind_name = b.get("ind_sw_l1_name")
+        is_unknown = 1 if (ind_name is None or pd.isna(ind_name) or str(ind_name).strip() == "") else 0
         row = {
             "sec_code": code,
             "sec_name": code,
@@ -281,7 +307,7 @@ def _fetch_security_data(codes: list) -> pd.DataFrame:
             if code.startswith(("300", "301"))
             else "主板",
             "ind_sw_l1_code": b.get("ind_sw_l1_code"),
-            "ind_sw_l1_name": b.get("ind_sw_l1_name"),
+            "ind_sw_l1_name": ind_name if not is_unknown else concentration.UNKNOWN_INDUSTRY,
             "total_shares": b.get("total_shares"),
             "total_float_shares": b.get("total_float_shares"),
             "avg_amt_20d": d.get("avg_amt_20d"),
@@ -290,6 +316,7 @@ def _fetch_security_data(codes: list) -> pd.DataFrame:
             "is_cc_micro": 0,
             "is_suspended": is_susp,
             "is_risk_warning": 0,
+            "is_unknown_security": is_unknown,
             "as_of_date": trade_date,
         }
         for flag, members in index_sets.items():
@@ -300,9 +327,6 @@ def _fetch_security_data(codes: list) -> pd.DataFrame:
         rows.append(row)
 
     security = pd.DataFrame(rows)
-    required = ["ind_sw_l1_name", "total_shares", "total_float_shares", "avg_amt_20d"]
-    if security[required].isna().any().any():
-        raise RuntimeError("上传组合存在未补齐的第一层数据")
     return security
 
 
@@ -393,9 +417,13 @@ def calculate(payload):
 
     l1 = security.drop(columns=["sec_name", "close", "as_of_date"], errors="ignore")
     merged = portfolio.merge(l1, on="sec_code", how="left", validate="one_to_one")
-    if merged["ind_sw_l1_name"].isna().any():
-        bad = merged.loc[merged["ind_sw_l1_name"].isna(), "sec_code"].tolist()
-        raise ValueError(f"第一层证券数据不包含: {bad}")
+    unknown_mask = merged["ind_sw_l1_name"].isna() | (
+        merged["ind_sw_l1_name"].astype(str).str.strip() == ""
+    ) | (merged["ind_sw_l1_name"].astype(str) == concentration.UNKNOWN_INDUSTRY)
+    merged["is_unknown_security"] = unknown_mask.astype(int)
+    merged["ind_sw_l1_name"] = merged["ind_sw_l1_name"].fillna(
+        concentration.UNKNOWN_INDUSTRY
+    )
     l2, industry_df, l2_summary = concentration.calc_concentration(merged)
     l3 = margin.calculate_stock_margin(l2, payload.get("params") or {})
     summary = margin.calculate_portfolio_ia(l3)

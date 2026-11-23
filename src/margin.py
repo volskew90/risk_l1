@@ -1,4 +1,4 @@
-"""L3 单券保证金与 L4 组合 IA 计算及归因剖析模块。"""
+"""L3 单券保证金与 L4 组合 IA 计算及归因剖析模块（对齐《IA_Margin_Rule.html》新规）。"""
 from typing import Dict
 
 import numpy as np
@@ -6,7 +6,20 @@ import pandas as pd
 
 
 def default_margin_params() -> Dict:
-    """默认保证金参数（兼容演示组合与原有单元测试口径）"""
+    """
+    默认保证金参数（全面对齐《IA_Margin_Rule.html》第十二节参数速查表）：
+    - base_im: 25%
+    - stock_adj: 双创非沪深300阈值 5% / 其他 10%，比例 0.7
+    - industry_adj: 阈值 20%，比例 0.4
+    - vol_adj: 90日波动率阈值 60%，比例 0.4
+    - star_adj: 双创/微盘非1800阈值 30%，比例 0.4
+    - r1 流动性超限: 20日均成交额 × 100%，上限 20 亿元
+    - r2 个股集中度超限: 15%（上证50豁免）
+    - r3 总股本超限: 1%
+    - r4 流通股本超限: 2%
+    - r5 行业集中度超限: 40%
+    - r7 微盘+双创超限: 50%
+    """
     return {
         "base_im": 0.25,
         "contract_add_on_type": "absolute",
@@ -20,12 +33,12 @@ def default_margin_params() -> Dict:
         "industry_weight_threshold": 0.20,
         "industry_adj_ratio": 0.4,
         "vol_90d_threshold": 0.60,
-        "vol_adj_ratio": 0.7,
+        "vol_adj_ratio": 0.4,
         "cc_micro_weight_threshold": 0.30,
         "cc_micro_adj_ratio": 0.4,
-        "liquidity_threshold": 0.15,
+        "liquidity_threshold": 1.0,
         "liquidity_cap": 2000000000.0,
-        "position_weight_limit": 0.01,
+        "position_weight_limit": 0.15,
         "total_share_limit": 0.01,
         "float_share_limit": 0.02,
         "industry_weight_limit": 0.40,
@@ -34,13 +47,18 @@ def default_margin_params() -> Dict:
 
 
 def standard_margin_params() -> Dict:
-    """业务规范标准参数（对齐《IA 保证金计算规则与测试案例》速查表）"""
+    """业务规范标准参数（与 default_margin_params 一致，对齐《IA_Margin_Rule.html》）"""
+    return default_margin_params()
+
+
+def legacy_demo_margin_params() -> Dict:
+    """旧版演示参数预设（r1=15%, r2=1%, vol_adj_ratio=0.7）"""
     params = default_margin_params()
     params.update(
         {
-            "vol_adj_ratio": 0.4,
-            "liquidity_threshold": 1.0,
-            "position_weight_limit": 0.30,
+            "vol_adj_ratio": 0.7,
+            "liquidity_threshold": 0.15,
+            "position_weight_limit": 0.01,
         }
     )
     return params
@@ -90,7 +108,8 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
         p["stock_weight_threshold_other"],
     )
 
-    # 识别特殊 100% 兜底标的：停牌股、风险警示股(ST/*ST)、或 90 日波动率缺失标的
+    # 识别特殊 100% 兜底标的（第八节 & TC15）：
+    # 停牌股、风险警示股(ST/*ST)、不在 A 股标的表中的未知标的、或 90 日波动率缺失标的
     is_suspended = (
         out["is_suspended"].fillna(0).astype(int)
         if "is_suspended" in out.columns
@@ -101,8 +120,23 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
         if "is_risk_warning" in out.columns
         else pd.Series(0, index=out.index)
     )
+    is_unknown_sec = (
+        out["is_unknown_security"].fillna(0).astype(int)
+        if "is_unknown_security" in out.columns
+        else pd.Series(0, index=out.index)
+    )
+    if "ind_sw_l1_name" in out.columns:
+        is_unknown_sec = is_unknown_sec | (
+            out["ind_sw_l1_name"].fillna("未知").astype(str) == "未知"
+        ).astype(int)
+
     vol_missing = out["vol_90d"].isna()
-    is_special_100 = (is_suspended == 1) | (is_risk_warning == 1) | vol_missing
+    is_special_100 = (
+        (is_suspended == 1)
+        | (is_risk_warning == 1)
+        | (is_unknown_sec == 1)
+        | vol_missing
+    )
 
     reasons = []
     for pos in range(len(out)):
@@ -111,7 +145,9 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
             r_list.append("停牌股")
         if int(is_risk_warning.iloc[pos]) == 1:
             r_list.append("风险警示")
-        if bool(vol_missing.iloc[pos]):
+        if int(is_unknown_sec.iloc[pos]) == 1:
+            r_list.append("不在A股标的表中")
+        if bool(vol_missing.iloc[pos]) and int(is_unknown_sec.iloc[pos]) == 0:
             r_list.append("波动率缺失")
         reasons.append("/".join(r_list) if r_list else "正常")
     out["is_special_100"] = is_special_100.astype(int)
@@ -119,6 +155,7 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
 
     vol_clean = out["vol_90d"].fillna(0.0).astype(float)
 
+    # 第四节：4 项调整项计算
     out["stock_adj"] = (
         np.maximum(out["weight_in_portfolio"] - stock_threshold, 0.0)
         * p["stock_adj_ratio"]
@@ -130,13 +167,13 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
     out["vol_adj"] = (
         np.maximum(vol_clean - p["vol_90d_threshold"], 0.0) * p["vol_adj_ratio"]
     ).round(4)
+    # star_adj 仅适用于双创或微盘股且非 1800 成分股（is_cc_micro == 1），非此类标的恒为 0
     out["star_adj"] = np.where(
         out["is_cc_micro"] == 1,
-        np.clip(
+        np.maximum(
             (out["cc_micro_weight"] - p["cc_micro_weight_threshold"])
             * p["cc_micro_adj_ratio"],
             0.0,
-            1.0,
         ),
         0.0,
     ).round(6)
@@ -144,12 +181,11 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
         ["stock_adj", "industry_adj", "vol_adj", "star_adj"]
     ].sum(axis=1)
 
-    # 支持标的级 base_im（若输入提供 stock_base_im 列），否则使用全局 base_im
+    # 第六节：基础保证金率 base_im（支持标的级 stock_base_im：25% / 30% / 100%）与框架合约加点
     if "stock_base_im" in out.columns and out["stock_base_im"].notna().any():
         raw_base = out["stock_base_im"].fillna(p["base_im"]).astype(float)
     else:
         raw_base = pd.Series(float(p["base_im"]), index=out.index)
-    # 特殊兜底标的（停牌/ST/波动率缺失）基础保证金率直接按 100% 计
     raw_base = np.where(is_special_100, 1.0, raw_base)
 
     if p["contract_add_on_type"] == "relative":
@@ -157,6 +193,7 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
     else:
         out["base_im_after_add_on"] = raw_base + p["contract_add_on"]
 
+    # 正常层保证金率 = MIN(adj_base_im + Σ调整项, 100%)
     out["maintenance_im"] = np.where(
         is_special_100,
         1.0,
@@ -167,6 +204,7 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
     total_shares_clean = out["total_shares"].fillna(0.0).astype(float)
     float_shares_clean = out["total_float_shares"].fillna(0.0).astype(float)
 
+    # 第五节：限制项（超限部分 100% 计收，合并取 MAX）
     out["restriction1"] = (
         out["market_value"]
         - np.minimum(
@@ -244,22 +282,29 @@ def _core_margin_calc(out: pd.DataFrame, p: Dict) -> pd.DataFrame:
     if p["upper_compare"] == "rule2":
         # 券商B规则2：标的数量 < 阈值时直接取 upper_im (B)；标的数量 >= 阈值时取 MIN(A, B)
         if n_pos < limit_n:
-            out["margin_requirement"] = out["upper_margin_requirement"]
+            compared_margin = out["upper_margin_requirement"]
         else:
-            out["margin_requirement"] = out[
+            compared_margin = out[
                 ["rule_margin_requirement", "upper_margin_requirement"]
             ].min(axis=1)
     elif n_pos < limit_n:
         if p["upper_compare"] == "max":
-            out["margin_requirement"] = out[
+            compared_margin = out[
                 ["rule_margin_requirement", "upper_margin_requirement"]
             ].max(axis=1)
         else:
-            out["margin_requirement"] = out[
+            compared_margin = out[
                 ["rule_margin_requirement", "upper_margin_requirement"]
             ].min(axis=1)
     else:
-        out["margin_requirement"] = out["rule_margin_requirement"]
+        compared_margin = out["rule_margin_requirement"]
+
+    # 特殊 100% 兜底标的（停牌/ST/未知标的/波动率缺失）始终按 100% 计收，不被 upper_im 取小优惠降级
+    out["margin_requirement"] = np.where(
+        is_special_100,
+        out["market_value"].round(2),
+        compared_margin,
+    )
 
     out["adjusted_ia"] = out["margin_requirement"] / out["market_value"]
     out.index = orig_index
@@ -322,11 +367,18 @@ def calculate_stock_margin(df: pd.DataFrame, params: Dict) -> pd.DataFrame:
     if df.empty or (df["market_value"] <= 0).any():
         raise ValueError("第三层输入必须为非空组合，且单券市值大于 0")
 
-    # 核心结构列不允许为空；vol_90d 允许为空（自动走 100% 特殊标的兜底）
+    # 核心结构列不允许为空；vol_90d / 股本 / 成交额允许为空（自动走 100% 特殊标的兜底）
     strict_numeric = [
         c
         for c in required
-        if c not in {"sec_code", "vol_90d", "total_shares", "total_float_shares", "avg_amt_20d"}
+        if c
+        not in {
+            "sec_code",
+            "vol_90d",
+            "total_shares",
+            "total_float_shares",
+            "avg_amt_20d",
+        }
     ]
     if df[strict_numeric].isna().any().any():
         bad = df.columns[df[strict_numeric].isna().any()].tolist()
@@ -334,8 +386,7 @@ def calculate_stock_margin(df: pd.DataFrame, params: Dict) -> pd.DataFrame:
 
     out = _core_margin_calc(df.copy(), p)
 
-    # 计算全组合边际 IA（Marginal IA）：衡量单票市值微小变动 1% 对组合总保证金的真实边际费率
-    # 若输入是完整自洽组合（Σ market_value == total_mv 且包含 ind_sw_l1_name），则计入跨标的行业/双创外溢效应
+    # 计算全组合边际 IA（Marginal IA）
     sum_mv = float(out["market_value"].sum())
     reported_total_mv = float(out["total_mv"].iloc[0])
     is_full_portfolio = (
@@ -383,7 +434,6 @@ def calculate_portfolio_ia(df: pd.DataFrame) -> Dict:
     portfolio_ia = total_margin / total_mv
     weighted_ia = float((df["adjusted_ia"] * df["market_value"]).sum() / total_mv)
 
-    # 组合 IA 深度归因拆解（正常层 vs 超限层、基础率 vs 各调整项 vs 限制项惩罚 vs upper_im 修正）
     restr_mv_sum = (
         float(df["restr_mv"].sum()) if "restr_mv" in df.columns else 0.0
     )
@@ -404,9 +454,7 @@ def calculate_portfolio_ia(df: pd.DataFrame) -> Dict:
         ind_contrib = float((normal_mv * df["industry_adj"]).sum() / total_mv)
         vol_contrib = float((normal_mv * df["vol_adj"]).sum() / total_mv)
         star_contrib = float((normal_mv * df["star_adj"]).sum() / total_mv)
-        # 限制项 100% 计收部分对组合 IA 的直接贡献
         restr_contrib = float(restr_mv_sum / total_mv)
-        # upper_im 封顶或取大修正以及封顶 100% 截断残差
         rule_total = float(df["rule_margin_requirement"].sum())
         upper_contrib = float((total_margin - rule_total) / total_mv)
     else:
@@ -429,7 +477,7 @@ def calculate_portfolio_ia(df: pd.DataFrame) -> Dict:
 
     return {
         "n_positions": int(len(df)),
-        "total_market_value": total_mv,
+        "total_market_value": round(total_mv, 2),
         "total_margin_requirement": round(total_margin, 2),
         "portfolio_ia": portfolio_ia,
         "portfolio_ia_weighted": weighted_ia,

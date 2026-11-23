@@ -81,6 +81,10 @@ details summary{cursor:pointer;font-weight:600;color:#27364c;font-size:14px;user
         <label>2. 选择组合内目标股票</label>
         <select id="target_sec_code"></select>
       </div>
+      <div class="field" id="group_split_wrap" style="display:none">
+        <label>行业/板块内由 N 只等权股票平分</label>
+        <input id="n_stocks_in_group" type="number" min="1" max="500" step="1" value="2" title="单票个股集中度 = 行业(或板块)集中度 ÷ N">
+      </div>
       <div class="field">
         <label>3. 起始值 (%)</label>
         <input id="start_val" type="number" step="0.1" value="10">
@@ -103,7 +107,7 @@ details summary{cursor:pointer;font-weight:600;color:#27364c;font-size:14px;user
       <button type="button" id="run_btn">运行情景分析</button>
       <button type="button" class="secondary" id="export_btn" disabled>导出 Excel（步进明细与参数）</button>
       <label class="chk-label" id="compare_all_wrap">
-        <input type="checkbox" id="compare_all"> 同图对比全部 4 类架空标的曲线
+        <input type="checkbox" id="compare_all"> 同图对比全部 5 类架空标的曲线
       </label>
       <label class="chk-label" id="exempt_cap_wrap" style="display:none">
         <input type="checkbox" id="exempt_capacity" checked> 豁免绝对规模容量限制 (r1 流动性 / r3 总股本 / r4 流通股本)
@@ -135,10 +139,10 @@ details summary{cursor:pointer;font-weight:600;color:#27364c;font-size:14px;user
   <!-- 系统风控规则阈值参数（可折叠） -->
   <section>
     <details>
-      <summary>二、系统风控规则参数设置（点击展开/收起 · 当前默认采用标准业务规则参数：base_im=25%, r1=100%, r2=30%, 波动率比例=0.4）</summary>
+      <summary>二、系统风控规则参数设置（点击展开/收起 · 当前默认采用《IA_Margin_Rule.html》标准参数：base_im=25%, r1=100%, r2=15%, 波动率比例=0.4）</summary>
       <div class="actions" style="margin:10px 0 14px">
-        <button type="button" class="secondary small-btn" id="use_std_params">载入标准规则参数 (r2=30%, r1=100%, vol比例=0.4)</button>
-        <button type="button" class="secondary small-btn" id="use_demo_params">载入演示参数 (r2=1%, r1=15%, vol比例=0.7)</button>
+        <button type="button" class="secondary small-btn" id="use_std_params">载入新规标准参数 (r2=15%, r1=100%, vol比例=0.4)</button>
+        <button type="button" class="secondary small-btn" id="use_demo_params">载入旧版演示参数 (r2=1%, r1=15%, vol比例=0.7)</button>
       </div>
       <h3>全局与调整项参数</h3>
       <div class="grid">
@@ -265,6 +269,12 @@ function syncStepsFromEnd() {
   }
 }
 
+function updateGroupSplitVisibility() {
+  const f = $('factor').value;
+  const show = currentMode === 'theoretical' && (f === 'industry_weight' || f === 'cc_micro_weight');
+  $('group_split_wrap').style.display = show ? 'flex' : 'none';
+}
+
 function onFactorChange() {
   if (!initData) return;
   const f = $('factor').value;
@@ -274,6 +284,7 @@ function onFactorChange() {
   $('step_val').value = Number((meta.default_step * 100).toFixed(4));
   $('steps_count').value = meta.default_steps;
   syncEndFromSteps();
+  updateGroupSplitVisibility();
 }
 
 function onArchetypeChange() {
@@ -335,6 +346,7 @@ function switchTab(mode) {
   $('target_stock_wrap').style.display = mode === 'portfolio' ? 'flex' : 'none';
   $('exempt_cap_wrap').style.display = mode === 'portfolio' ? 'inline-flex' : 'none';
   $('portfolio_section').style.display = mode === 'portfolio' ? 'block' : 'none';
+  updateGroupSplitVisibility();
   runScenario();
 }
 
@@ -360,6 +372,7 @@ async function runScenario() {
     if (currentMode === 'theoretical') {
       payload.archetype = $('archetype').value;
       payload.compare_all_archetypes = $('compare_all').checked;
+      payload.n_stocks_in_group = Math.max(1, Math.round(Number($('n_stocks_in_group').value) || 1));
     } else {
       endpoint = '/api/scenario/portfolio';
       payload.positions = getPositions();
@@ -497,6 +510,7 @@ function renderChart(data) {
     const palette = {
       normal: '#2457d6',
       dual_non300: '#d92d20',
+      dual_1800: '#d97706',
       main_micro: '#7a5af8',
       sse50: '#0e9384',
     };
@@ -718,6 +732,7 @@ async function init() {
   $('archetype').onchange = () => { onArchetypeChange(); runScenario(); };
   $('target_sec_code').onchange = () => runScenario();
   $('compare_all').onchange = () => runScenario();
+  $('n_stocks_in_group').onchange = () => runScenario();
   $('exempt_capacity').onchange = () => runScenario();
   $('apply_upper_im').onchange = () => runScenario();
   $('start_val'). oninput = syncEndFromSteps;

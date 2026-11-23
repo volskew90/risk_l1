@@ -159,6 +159,10 @@ def attach_industry(
     df = portfolio.copy()
     df["sec_code"] = df["sec_code"].apply(normalize_sec_code)
     df = df.merge(l1, on="sec_code", how="left")
+    unknown_mask = df["ind_sw_l1_name"].isna() | (
+        df["ind_sw_l1_name"].astype(str).str.strip() == ""
+    )
+    df["is_unknown_security"] = unknown_mask.astype(int)
     df["ind_sw_l1_name"] = df["ind_sw_l1_name"].fillna(UNKNOWN_INDUSTRY)
     for col in ["total_shares", "total_float_shares", "avg_amt_20d", "vol_90d"]:
         if col not in df.columns:
@@ -179,10 +183,10 @@ def attach_industry(
             df[col] = 0
         df[col] = df[col].fillna(0).astype(int)
 
-    n_unknown = int((df["ind_sw_l1_name"] == UNKNOWN_INDUSTRY).sum())
+    n_unknown = int(unknown_mask.sum())
     if n_unknown:
         logger.warning(
-            "%d stocks not found in L1 snapshot, industry = %s",
+            "%d stocks not found in L1 snapshot, industry = %s (will fallback to 100%% IA)",
             n_unknown,
             UNKNOWN_INDUSTRY,
         )
