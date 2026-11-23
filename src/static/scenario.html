@@ -732,6 +732,7 @@ async function init() {
   $('archetype').onchange = () => { onArchetypeChange(); runScenario(); };
   $('target_sec_code').onchange = () => runScenario();
   $('compare_all').onchange = () => runScenario();
+  $('n_stocks_in_group').oninput = () => runScenario();
   $('n_stocks_in_group').onchange = () => runScenario();
   $('exempt_capacity').onchange = () => runScenario();
   $('apply_upper_im').onchange = () => runScenario();

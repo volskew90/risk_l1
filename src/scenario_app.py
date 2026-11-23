@@ -397,17 +397,20 @@ def _apply_theoretical_factor_at_step(
     return row
 
 
-def _detect_threshold_markers(factor: str, archetype_key: str, p: Dict) -> List[Dict]:
+def _detect_threshold_markers(
+    factor: str, archetype_key: str, p: Dict, n_stocks_in_group: int = 1
+) -> List[Dict]:
     """根据当前分析变量与标的类别，返回需要在图表上标注的阈值拐点竖线"""
     arch = ARCHETYPES.get(archetype_key, ARCHETYPES["normal"])
+    n_split = max(int(n_stocks_in_group or 1), 1)
+    stock_th = (
+        p["stock_weight_threshold_dual"]
+        if arch["sec_code"].startswith(("300", "301", "688"))
+        and arch["is_csi300"] == 0
+        else p["stock_weight_threshold_other"]
+    )
     markers = []
     if factor == "stock_weight":
-        stock_th = (
-            p["stock_weight_threshold_dual"]
-            if arch["sec_code"].startswith(("300", "301", "688"))
-            and arch["is_csi300"] == 0
-            else p["stock_weight_threshold_other"]
-        )
         markers.append(
             {"value": stock_th, "label": f"个股加点起征 ({stock_th*100:.1f}%)", "color": "#2457d6"}
         )
@@ -464,6 +467,22 @@ def _detect_threshold_markers(factor: str, archetype_key: str, p: Dict) -> List[
                 "color": "#d92d20",
             }
         )
+        if stock_th * n_split <= 1.0:
+            markers.append(
+                {
+                    "value": stock_th * n_split,
+                    "label": f"N={n_split}联动个股加点 ({stock_th*n_split*100:.1f}%)",
+                    "color": "#0e9384",
+                }
+            )
+        if arch["is_sse50"] == 0 and p["position_weight_limit"] * n_split <= 1.0:
+            markers.append(
+                {
+                    "value": p["position_weight_limit"] * n_split,
+                    "label": f"N={n_split}联动r2超限 ({p['position_weight_limit']*n_split*100:.1f}%)",
+                    "color": "#b54708",
+                }
+            )
     elif factor == "cc_micro_weight":
         markers.append(
             {
@@ -479,6 +498,22 @@ def _detect_threshold_markers(factor: str, archetype_key: str, p: Dict) -> List[
                 "color": "#d92d20",
             }
         )
+        if stock_th * n_split <= 1.0:
+            markers.append(
+                {
+                    "value": stock_th * n_split,
+                    "label": f"N={n_split}联动个股加点 ({stock_th*n_split*100:.1f}%)",
+                    "color": "#0e9384",
+                }
+            )
+        if arch["is_sse50"] == 0 and p["position_weight_limit"] * n_split <= 1.0:
+            markers.append(
+                {
+                    "value": p["position_weight_limit"] * n_split,
+                    "label": f"N={n_split}联动r2超限 ({p['position_weight_limit']*n_split*100:.1f}%)",
+                    "color": "#b54708",
+                }
+            )
     elif factor == "vol_90d":
         markers.append(
             {
@@ -629,11 +664,14 @@ def run_theoretical_scenario(payload: Dict) -> Dict:
         "factor_label": meta["label"],
         "archetype": archetype_key,
         "archetype_name": ARCHETYPES[archetype_key]["name"],
+        "n_stocks_in_group": n_stocks_in_group,
         "starting_base_ia": starting_base_ia,
         "step_count": len(primary_rows),
         "rows": primary_rows,
         "comparison_series": comparison_series,
-        "threshold_markers": _detect_threshold_markers(factor, archetype_key, p),
+        "threshold_markers": _detect_threshold_markers(
+            factor, archetype_key, p, n_stocks_in_group=n_stocks_in_group
+        ),
     }
 
 
